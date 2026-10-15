@@ -73,6 +73,12 @@ final class MemoriaLocalTests: XCTestCase {
         try store.capture([text("respaldo")], title: "Respaldo", text: "respaldo", source: "test")
         let url = directory.appendingPathComponent("backup.sqlite")
         try store.backup(to: url); XCTAssertThrowsError(try store.backup(to: url))
+        // A backup must remain valid when only the main file is transferred.
+        let standalone = directory.appendingPathComponent("standalone.sqlite")
+        try Data(contentsOf: url).write(to: standalone)
+        let copied = try ClipStore(path: standalone.path)
+        XCTAssertEqual(try copied.clips().count, 1)
+        XCTAssertEqual(try copied.representations(copied.clips()[0].id), [text("respaldo")])
         try store.capture([text("después")], title: "Después", text: "después", source: "test")
         XCTAssertEqual(try store.mergeBackup(url), 0)
         XCTAssertEqual(try store.clips().count, 2)

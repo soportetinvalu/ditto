@@ -136,13 +136,19 @@ int cm_backup(sqlite3 *db,const char *path) {
     int rc=sqlite3_open_v2(path,&dest,SQLITE_OPEN_READWRITE,NULL);
     if(rc!=SQLITE_OK) { if(dest) sqlite3_close(dest);return rc; }
     chmod(path,0600);
-    sqlite3_backup *b=sqlite3_backup_init(dest,"main",db,"main");
-    if(!b) {rc=sqlite3_errcode(dest);} else {
-        rc=sqlite3_backup_step(b,-1);
-        int finish=sqlite3_backup_finish(b);
-        rc=rc==SQLITE_DONE?finish:rc;
+    /* Backups must be self-contained files, independent of WAL/SHM sidecars. */
+    rc=exec(dest,"PRAGMA journal_mode=DELETE");
+    if(rc==SQLITE_OK) {
+        sqlite3_backup *b=sqlite3_backup_init(dest,"main",db,"main");
+        if(!b) {rc=sqlite3_errcode(dest);} else {
+            rc=sqlite3_backup_step(b,-1);
+            int finish=sqlite3_backup_finish(b);
+            rc=rc==SQLITE_DONE?finish:rc;
+        }
     }
-    sqlite3_close(dest);return rc;
+    if(rc==SQLITE_OK) rc=exec(dest,"PRAGMA journal_mode=DELETE");
+    int closed=sqlite3_close(dest);
+    return rc==SQLITE_OK?closed:rc;
 }
 
 int cm_validate_file(const char *path) {

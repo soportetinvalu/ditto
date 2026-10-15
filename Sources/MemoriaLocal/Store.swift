@@ -309,7 +309,10 @@ final class ClipStore {
     }
     func backup(to url: URL) throws {
         guard !FileManager.default.fileExists(atPath: url.path) else { throw LocalError("El respaldo debe tener un nombre nuevo: no se sobrescribe.") }
-        guard cm_backup(db, url.path) == SQLITE_OK, cm_validate_file(url.path) == SQLITE_OK else { throw LocalError("Falló la validación del respaldo.") }
+        let copied = cm_backup(db, url.path)
+        guard copied == SQLITE_OK else { throw LocalError("Falló la copia del respaldo (SQLite \(copied)).") }
+        let validated = cm_validate_file(url.path)
+        guard validated == SQLITE_OK else { throw LocalError("Falló la validación del respaldo (SQLite \(validated)).") }
     }
     func mergeBackup(_ url: URL) throws -> Int {
         let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
