@@ -1,0 +1,38 @@
+# Build outputs and local verification
+.build/
+.verification/
+build/
+builds/
+dist/
+__pycache__/
+*.pyc
+.DS_Store
+*.xcuserstate
+
+# Credentials and private signing material
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.mobileprovision
+
+# Personal clipboard/history/export data and captures
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+data/
+personal/
+exports/
+backups/
+captures/
+screenshots/
+capturas/
+*.log
+*.zip
+*.app/

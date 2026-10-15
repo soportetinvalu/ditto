@@ -1,0 +1,49 @@
+Memoria Local — nombre provisional, sin afiliación con Ditto Clipboard
+SPDX-License-Identifier: GPL-3.0-only
+
+Este proyecto se entrega bajo GNU General Public License, versión 3, cuyo texto
+íntegro está en LICENSE. Sin garantía; consulta la licencia. Quien distribuya
+binarios debe acompañarlos de su fuente correspondiente y conservar los avisos
+y derechos aplicables. El empaquetador entrega siempre un archivo de fuentes
+junto al binario. Las compilaciones del piloto se publican como artifacts de desarrollo,
+sin afirmar aceptación visual, paridad completa ni notarización.
+
+Procedencia y reutilización
+--------------------------
+Implementación original Swift/AppKit/C/SQLite generada para este proyecto.
+No se han copiado código C++ de Ditto, BLOB de sus bases de datos, traducciones,
+recursos gráficos, nombres comerciales de producto ni logotipos de Ditto.
+Se utilizó el informe existente INFORME-REA-DITTO-MAC.md como especificación
+funcional. Ese informe documenta análisis estático y consulta previa de fuentes
+de Ditto; NO se afirma un proceso clean-room ni paridad de ejecución.
+
+Referencia de comportamiento, no dependencia incorporada:
+Ditto Clipboard, Scott Brogden y colaboradores.
+https://github.com/sabrogden/Ditto
+Tag estudiado por el informe: 3.25.113.0
+Commit documentado: 81a667c790f5a6c9b6b63f187eb75e79bf159670
+Licencia principal documentada del tag: GNU GPL versión 3.
+No se atribuye a los autores de Ditto este código nuevo ni se afirma autorización
+para usar sus marcas. No se reutilizan sus binarios ni dependencias Windows.
+
+Dependencias
+------------
+No hay paquetes de terceros descargados ni dependencias SwiftPM remotas.
+Se usan APIs del sistema macOS: AppKit, Foundation, CryptoKit, Carbon,
+ApplicationServices, CoreGraphics/CoreImage/ImageIO y ServiceManagement.
+Sus implementaciones pertenecen al sistema operativo y no se redistribuyen aquí.
+SQLite se enlaza con la biblioteca del sistema (dominio público según SQLite).
+Tests/Support/sqlite3.h solo declara el ABI mínimo para pruebas Linux cuando
+falta el header de desarrollo: NO contiene una implementación SQLite ni mocks.
+El build macOS utiliza el header real del SDK, no ese archivo auxiliar.
+
+Texto de licencia
+-----------------
+LICENSE fue obtenido de https://www.gnu.org/licenses/gpl-3.0.txt y comprobado:
+SHA-256 3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986
+Coincide con el hash de licencia del tag documentado en el informe.
+La descarga del texto de licencia no es una nueva investigación REA.
+
+Antes de distribuir: identificar responsable/editor, revisar este aviso frente
+a cualquier reutilización futura, completar auditoría y pruebas macOS, y decidir
+firma Developer ID/notarización si procede. El nombre y bundle ID son provisionales.
