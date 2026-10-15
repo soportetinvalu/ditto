@@ -7,7 +7,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-#define CM_MAX_BYTES (32 * 1024 * 1024)
+/* Keep a literal so Swift's Clang importer exposes the shared 32 MiB limit. */
+#define CM_MAX_BYTES 33554432
 #define CM_MAX_REPRESENTATIONS 256
 
 typedef struct {
