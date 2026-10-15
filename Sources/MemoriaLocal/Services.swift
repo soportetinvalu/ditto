@@ -18,6 +18,7 @@ final class Preferences {
                                     "hotKey": 50, "hotModifiers": Int(controlKey | optionKey),
                                     "appearance": "system", "customTypes": false])
     }
+    var shortcut: ShortcutConfiguration { ShortcutConfiguration.load(from: defaults) }
     var enabled: Bool { defaults.bool(forKey: "captureEnabled") }
     var paused: Bool { get { defaults.bool(forKey: "paused") } set { defaults.set(newValue, forKey: "paused") } }
     var excluded: String { defaults.string(forKey: "excluded") ?? "" }
@@ -188,24 +189,33 @@ final class PasteCoordinator {
 }
 
 final class GlobalShortcut {
-    private var reference: EventHotKeyRef?
     private var handler: EventHandlerRef?
+    private var handlerStatus: OSStatus = noErr
+    private lazy var registration = ShortcutRegistration<EventHotKeyRef>(acquire: { candidate in
+        var reference: EventHotKeyRef?
+        let id = EventHotKeyID(signature: OSType(0x4d454d4c), id: 1)
+        let rc = RegisterEventHotKey(candidate.keyCode, candidate.modifiers, id, GetApplicationEventTarget(), 0, &reference)
+        guard rc == noErr, let reference else {
+            throw LocalError("El atajo global no está disponible (\(rc)). Puede estar reservado por macOS u otra app. Se conserva el atajo anterior; elige otra combinación.")
+        }
+        return reference
+    }, release: { UnregisterEventHotKey($0) })
     var action: (() -> Void)?
     init() {
         var event = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, context in
+        handlerStatus = InstallEventHandler(GetApplicationEventTarget(), { _, _, context in
             guard let context else { return OSStatus(eventNotHandledErr) }
             Unmanaged<GlobalShortcut>.fromOpaque(context).takeUnretainedValue().action?()
             return noErr
         }, 1, &event, Unmanaged.passUnretained(self).toOpaque(), &handler)
     }
-    func register(key: UInt32, modifiers: UInt32) throws {
-        if let reference { UnregisterEventHotKey(reference); self.reference = nil }
-        let id = EventHotKeyID(signature: OSType(0x4d454d4c), id: 1)
-        let rc = RegisterEventHotKey(key, modifiers, id, GetApplicationEventTarget(), 0, &reference)
-        guard rc == noErr else { throw LocalError("El atajo global no está disponible (\(rc)). El icono de menú sigue funcionando; elige otro atajo.") }
+    func register(_ configuration: ShortcutConfiguration) throws {
+        guard handlerStatus == noErr else {
+            throw LocalError("No se pudo instalar el manejador del atajo (\(handlerStatus)). Usa el icono de menú.")
+        }
+        try registration.replace(with: configuration)
     }
-    deinit { if let reference { UnregisterEventHotKey(reference) }; if let handler { RemoveEventHandler(handler) } }
+    deinit { if let handler { RemoveEventHandler(handler) } }
 }
 
 enum TextTransform: String, CaseIterable {

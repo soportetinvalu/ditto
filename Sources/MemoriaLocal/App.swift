@@ -48,11 +48,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             history.onSettings = { [weak self] in self?.settings.open() }
             history.onPause = { [weak self] in self?.togglePause() }
             settings.onSave = { [weak self] in try self?.applySettings() }
+            settings.onShortcutSave = { [weak self] candidate in try self?.shortcut.register(candidate) }
             monitor.onChange = { [weak self] in self?.history.reload() }
             monitor.onMessage = { [weak self] in self?.history.message($0) }
             paste.onMessage = { [weak self] in self?.history.message($0) }
             installMenu()
             preferences.applyAppearance()
+            do { try shortcut.register(preferences.shortcut) } catch { showError(error) }
             do { try applySettings() } catch { showError(error) }
             if !preferences.enabled { openHistory(); history.message("Captura desactivada. Abre Ajustes para dar consentimiento y elegir exclusiones.") }
         } catch {
@@ -64,7 +66,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         monitor.start()
         try store.retain(days: preferences.defaults.integer(forKey: "days"), count: preferences.defaults.integer(forKey: "maxCount"), megabytes: preferences.defaults.integer(forKey: "megabytes"))
         history.reload(); updateStatus()
-        try shortcut.register(key: UInt32(preferences.defaults.integer(forKey: "hotKey")), modifiers: UInt32(preferences.defaults.integer(forKey: "hotModifiers")))
     }
     private func installMenu() {
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)

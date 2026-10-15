@@ -25,7 +25,16 @@ La primera apertura mantiene la captura **desactivada**. Activarla en Ajustes ex
 
 ### Panel y teclado
 
-Barra de menús → panel compacto de filas alternas numeradas, filtros de grupo/favorito/papelera y buscador inferior. UI en español, apariencia sistema/clara/oscura. Atajo inicial **⌃⌥ `** (código físico 50; configurable entre tres combinaciones); si está ocupado se informa y el icono sigue disponible.
+Barra de menús → panel compacto de filas alternas numeradas, filtros de grupo/favorito/papelera y buscador inferior. UI en español, apariencia sistema/clara/oscura. Atajo inicial **⌃⌥ `** (código físico 50). Ajustes conserva los tres preajustes y añade **Personalizado…**:
+
+1. Abre **Ajustes…** desde el icono de la barra de menús.
+2. En **Atajo global**, elige **Personalizado…** y pulsa **Grabar atajo**.
+3. Pulsa una tecla con al menos un modificador **⌃ Control, ⌥ Opción, ⇧ Mayúsculas o ⌘ Comando**. Se muestra la combinación; una tecla sin modificadores se rechaza. **Esc** cancela la grabación, igual que cambiar de foco o cerrar Ajustes.
+4. Pulsa **Guardar** para registrar y conservar el cambio entre aperturas. **Restablecer** prepara el atajo inicial; también requiere Guardar.
+
+No se solicitan permisos de monitorización del teclado: el grabador solo recibe eventos de su ventana mientras tiene el foco. Carbon registra el atajo global mediante el código físico y los modificadores. Las etiquetas usan una tabla física ANSI (pueden diferir de las leyendas de un teclado español/ISO/JIS); cambiar la distribución no cambia la posición registrada. Esc se reserva para cancelar la grabación. Fn/Caps Lock no cuentan como modificadores; las teclas de función pueden necesitar Fn según la configuración del Mac.
+
+macOS y otras apps pueden reservar combinaciones o interceptarlas antes de que lleguen al grabador. Si Carbon rechaza una combinación, Ajustes informa del error y conserva **el atajo anterior y sus preferencias**, sin desregistrarlo primero. Al arrancar no hay un registro previo que conservar: si el atajo guardado está ocupado, se informa y el icono sigue disponible para elegir otro. Comprueba la combinación en tu Mac; no se garantiza detectar todas las interferencias del sistema.
 
 - `Enter`/doble clic: formato original; `Shift-Enter`: solo texto.
 - Flechas para selección; `Espacio`: vista previa; `Escape`: ocultar.
@@ -64,6 +73,7 @@ El editor crea una copia **solo texto**, sin alterar el original. Guardar un con
 - `Services.swift`: sondeo multiformato, filtros, auto-captura excluida, consentimiento AX, retorno de foco, hotkey Carbon y previews.
 - `HistoryController.swift`: panel/AppKit, selección/teclado, acciones y gestión.
 - `SettingsController.swift`: privacidad, límites, atajo, apariencia e inicio de sesión opt-in con `SMAppService`.
+- `Shortcut.swift`: configuración física compatible con preferencias anteriores, conversión/validación/descripción, reemplazo seguro del registro y grabador first-responder sin monitor global.
 - `App.swift`: ciclo de vida/barra de menús y `--self-check` sin portapapeles.
 - `Tests/CoreTests/`: pruebas del núcleo real con SQLite real.
 - `Tests/MemoriaLocalTests/`: XCTest de Swift y portapapeles **nombrado**, nunca `.general`.

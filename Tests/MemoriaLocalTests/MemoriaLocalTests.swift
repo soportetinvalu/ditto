@@ -1,12 +1,89 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import XCTest
 import AppKit
+import Carbon
 import ClipCore
 @testable import MemoriaLocal
 
 final class MemoriaLocalTests: XCTestCase {
     private func text(_ string: String, item: Int = 0) -> Representation {
         Representation(item: item, type: NSPasteboard.PasteboardType.string.rawValue, data: Data(string.utf8))
+    }
+    func testShortcutCarbonModifiers() {
+        let pairs: [(NSEvent.ModifierFlags, UInt32)] = [(.control, UInt32(controlKey)), (.option, UInt32(optionKey)),
+                                                        (.shift, UInt32(shiftKey)), (.command, UInt32(cmdKey))]
+        for (flag, carbon) in pairs { XCTAssertEqual(ShortcutConfiguration.carbonModifiers(from: flag), carbon) }
+        XCTAssertEqual(ShortcutConfiguration.carbonModifiers(from: [.control, .option, .shift, .command, .capsLock, .function, .numericPad]), ShortcutConfiguration.modifierMask)
+        XCTAssertEqual(ShortcutConfiguration.carbonModifiers(from: [.capsLock, .function, .numericPad]), 0)
+        XCTAssertEqual(ShortcutConfiguration.carbonModifiers(from: []), 0)
+    }
+    func testShortcutRequiresModifierAndRealKey() throws {
+        for flag in [NSEvent.ModifierFlags.control, .option, .shift, .command] {
+            XCTAssertNoThrow(try ShortcutConfiguration(keyCode: 0, modifiers: ShortcutConfiguration.carbonModifiers(from: flag)).validate())
+        }
+        for value in [ShortcutConfiguration(keyCode: 0, modifiers: 0),
+                      .init(keyCode: 55, modifiers: UInt32(cmdKey)),
+                      .init(keyCode: 128, modifiers: UInt32(optionKey)),
+                      .init(keyCode: 9, modifiers: UInt32(cmdKey) | (1 << 31))] {
+            XCTAssertFalse(value.isValid); XCTAssertThrowsError(try value.validate())
+        }
+    }
+    func testShortcutTextUsesPhysicalKeyAndStableModifierOrder() {
+        XCTAssertEqual(ShortcutConfiguration.initial.description, "⌃⌥ `")
+        XCTAssertEqual(ShortcutConfiguration.presets[1].description, "⌃⌥ Espacio")
+        XCTAssertEqual(ShortcutConfiguration.presets[2].description, "⌃⇧ V")
+        XCTAssertEqual(ShortcutConfiguration(keyCode: 0, modifiers: ShortcutConfiguration.modifierMask).description, "⌃⌥⇧⌘ A")
+        XCTAssertEqual(ShortcutConfiguration.keyName(122), "F1")
+        XCTAssertEqual(ShortcutConfiguration.keyName(123), "←")
+        XCTAssertEqual(ShortcutConfiguration.keyName(10), "Tecla física 10")
+    }
+    func testShortcutLegacyPreferencesAndRoundTrip() throws {
+        let suite = "MemoriaLocal-shortcut-tests-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let preferences = Preferences(defaults)
+        XCTAssertEqual(preferences.shortcut, .initial)
+        // Existing releases wrote exactly these integer keys, in Carbon units.
+        defaults.set(9, forKey: "hotKey"); defaults.set(Int(controlKey | shiftKey), forKey: "hotModifiers")
+        XCTAssertEqual(preferences.shortcut, ShortcutConfiguration.presets[2])
+        let custom = ShortcutConfiguration(keyCode: 40, modifiers: UInt32(cmdKey | optionKey))
+        try custom.persist(in: defaults)
+        XCTAssertEqual(Preferences(try XCTUnwrap(UserDefaults(suiteName: suite))).shortcut, custom)
+        XCTAssertEqual(defaults.integer(forKey: "hotKey"), 40)
+        XCTAssertEqual(defaults.integer(forKey: "hotModifiers"), Int(cmdKey | optionKey))
+        XCTAssertThrowsError(try ShortcutConfiguration(keyCode: 0, modifiers: 0).persist(in: defaults))
+        XCTAssertEqual(preferences.shortcut, custom)
+        defaults.set(-1, forKey: "hotKey"); XCTAssertEqual(preferences.shortcut, .initial)
+        defaults.set(40, forKey: "hotKey"); defaults.set(0, forKey: "hotModifiers")
+        XCTAssertEqual(preferences.shortcut, .initial)
+        try ShortcutConfiguration.initial.persist(in: defaults)
+        XCTAssertEqual(preferences.shortcut, .initial)
+    }
+    func testShortcutRegistrationFailureKeepsPreviousHandleAndPreferences() throws {
+        let suite = "MemoriaLocal-shortcut-registration-" + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        var calls = [String](); var fail = false
+        let registration = ShortcutRegistration<UInt32>(acquire: { value in
+            calls.append("acquire-\(value.keyCode)")
+            if fail { throw LocalError("occupied") }
+            return value.keyCode
+        }, release: { calls.append("release-\($0)") })
+        let previous = ShortcutConfiguration.initial; let candidate = ShortcutConfiguration.presets[2]
+        try registration.replace(with: previous); try previous.persist(in: defaults)
+        fail = true
+        XCTAssertThrowsError(try { try registration.replace(with: candidate); try candidate.persist(in: defaults) }())
+        XCTAssertEqual(registration.configuration, previous)
+        XCTAssertEqual(ShortcutConfiguration.load(from: defaults), previous)
+        XCTAssertEqual(calls, ["acquire-50", "acquire-9"])
+        fail = false
+        try registration.replace(with: candidate); try candidate.persist(in: defaults)
+        XCTAssertEqual(calls, ["acquire-50", "acquire-9", "acquire-9", "release-50"])
+        XCTAssertEqual(ShortcutConfiguration.load(from: defaults), candidate)
+        try registration.replace(with: candidate) // No conflict with our own unchanged shortcut.
+        XCTAssertEqual(calls.count, 4)
+        XCTAssertThrowsError(try registration.replace(with: .init(keyCode: 0, modifiers: 0)))
+        XCTAssertEqual(registration.configuration, candidate); XCTAssertEqual(calls.count, 4)
     }
     func testSyntheticProductionStore() throws { try SyntheticChecks.run() }
     func testHashPreservesItemBoundariesAndIgnoresRepresentationEnumerationOrder() {

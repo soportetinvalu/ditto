@@ -57,7 +57,11 @@ Rutas de logs relativas a `app-macos/.verification/`.
 
 Estas pruebas **no** ejecutan SHA-256 Swift, consultas construidas por Swift, `NSPasteboard`, AppKit, Carbon, TCC ni `CGEvent`. Las comprobaciones estáticas de presencia/ausencia de APIs no acreditan comportamiento de privacidad o seguridad en ejecución.
 
-## Pruebas macOS preparadas, NO ejecutadas
+## Ampliación: atajo personalizado
+
+El registro histórico que sigue corresponde a la entrega inicial, anterior a los builds de GitHub Actions. La suite actual añade cinco XCTest puros del atajo (16 métodos en total): NSEvent→Carbon, modificador obligatorio, descripción física, preferencias legacy/round-trip y reemplazo con fallo inyectado que conserva registro/preferencias anteriores. No crean ventanas ni monitores ni requieren permisos de teclado. La prueba del fallo usa el mismo coordinador de registro que producción, con adquisición/liberación inyectadas; no demuestra por sí sola una colisión real de Carbon. Grabación/foco, teclas reservadas y funcionamiento desde otra app se verifican con la fila de aceptación de `ACEPTACION-MACOS.md`.
+
+## Pruebas macOS preparadas, NO ejecutadas (registro histórico inicial)
 
 `Tests/MemoriaLocalTests/MemoriaLocalTests.swift` contiene **11 métodos XCTest** del código real: flujo sintético de store, hash y límites de ítems, búsqueda/regex, grupos/protección/papelera, JSON roundtrip/validaciones, backup/fusión, captura multiformato/pausa/exclusiones/autocopia en pasteboard nombrado, extracción HTML/transformaciones, fallback de copia sin AX/eventos, panel con filtros sobre store real y entradas inválidas. No hay test que use el pasteboard general de la persona usuaria.
 

@@ -5,10 +5,15 @@ import ServiceManagement
 
 private final class SettingsDocumentView: NSView { override var isFlipped: Bool { true } }
 
-final class SettingsController: NSObject {
+final class SettingsController: NSObject, NSWindowDelegate {
     let preferences: Preferences
     let store: ClipStore
     var onSave: (() throws -> Void)?
+    var onShortcutSave: ((ShortcutConfiguration) throws -> Void)?
+    private let recorder = ShortcutRecorder(frame: .zero)
+    private let shortcutValue = NSTextField(labelWithString: "")
+    private let shortcutMessage = NSTextField(wrappingLabelWithString: "")
+    private var pendingShortcut = ShortcutConfiguration.initial
     private var window: NSWindow!
     private let capture = NSButton(checkboxWithTitle: "Capturar nuevas copias (consentimiento local)", target: nil, action: nil)
     private let autoPaste = NSButton(checkboxWithTitle: "Enviar ⌘V al destino anterior (requiere Accesibilidad)", target: nil, action: nil)
@@ -19,11 +24,7 @@ final class SettingsController: NSObject {
     private let days = NSTextField(); private let count = NSTextField(); private let size = NSTextField()
     private let poll = NSTextField(); private let separator = NSTextField()
     private let shortcut = NSPopUpButton(); private let appearance = NSPopUpButton()
-    private let shortcuts: [(String, Int, Int)] = [
-        ("⌃⌥ ` (tecla física)", 50, Int(controlKey | optionKey)),
-        ("⌃⌥ Espacio", 49, Int(controlKey | optionKey)),
-        ("⌃⇧ V", 9, Int(controlKey | shiftKey))
-    ]
+    private let shortcuts = ShortcutConfiguration.presets
     init(preferences: Preferences, store: ClipStore) { self.preferences = preferences; self.store = store; super.init() }
     private func row(_ title: String, _ control: NSView) -> NSStackView {
         let label = NSTextField(labelWithString: title); label.font = .systemFont(ofSize: 12)
@@ -40,6 +41,7 @@ final class SettingsController: NSObject {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 720), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         window.minSize = NSSize(width: 600, height: 520)
         window.title = "Ajustes — Memoria Local"; window.isReleasedWhenClosed = false
+        window.delegate = self
         let title = NSTextField(wrappingLabelWithString: "Privacidad local: sin cuenta, red, telemetría ni sincronización. El historial puede contener información sensible. No está cifrado por esta aplicación; usa FileVault si corresponde. La app en primer plano es solo una aproximación del origen.")
         title.preferredMaxLayoutWidth = 520
         title.font = .systemFont(ofSize: 12)
@@ -47,7 +49,24 @@ final class SettingsController: NSObject {
         allowed.placeholderString = "Vacío = cualquier app no excluida"
         let warning = NSTextField(wrappingLabelWithString: "Los tipos marcados como ocultos/transitorios se omiten. No se garantiza detectar contraseñas ni todas las copias entre sondeos. Las URL de archivos son referencias, no respaldos de archivos.")
         warning.preferredMaxLayoutWidth = 520; warning.font = .systemFont(ofSize: 11); warning.textColor = .secondaryLabelColor
-        shortcut.addItems(withTitles: shortcuts.map { $0.0 }); appearance.addItems(withTitles: ["Sistema", "Claro", "Oscuro"])
+        shortcut.addItems(withTitles: shortcuts.map { $0.description } + ["Personalizado…"])
+        shortcut.target = self; shortcut.action = #selector(shortcutChanged)
+        appearance.addItems(withTitles: ["Sistema", "Claro", "Oscuro"])
+        recorder.onRecorded = { [weak self] value in
+            guard let self else { return }
+            self.pendingShortcut = value; self.shortcutValue.stringValue = value.description
+            self.shortcutMessage.stringValue = "Atajo preparado; pulsa Guardar para aplicarlo."
+        }
+        recorder.onMessage = { [weak self] text in self?.shortcutMessage.stringValue = text }
+        shortcutValue.setAccessibilityLabel("Combinación del atajo global")
+        shortcutMessage.preferredMaxLayoutWidth = 520
+        shortcutMessage.font = .systemFont(ofSize: 11); shortcutMessage.textColor = .secondaryLabelColor
+        let shortcutControls = NSStackView(views: [recorder, shortcutValue,
+            NSButton(title: "Restablecer", target: self, action: #selector(resetShortcut))])
+        shortcutControls.spacing = 8
+        let shortcutGroup = NSStackView(views: [shortcut, shortcutControls, shortcutMessage])
+        shortcutGroup.orientation = .vertical; shortcutGroup.alignment = .leading; shortcutGroup.spacing = 5
+        shortcut.widthAnchor.constraint(equalToConstant: 520).isActive = true
         let numbers = NSStackView(); numbers.orientation = .horizontal; numbers.spacing = 8
         for (label, field) in [("Días (0=sin plazo)", days), ("Máximo copias", count), ("MiB historial", size), ("Sondeo ms", poll)] {
             let block = NSStackView(views: [NSTextField(labelWithString: label), field]); block.orientation = .vertical; block.alignment = .leading
@@ -61,7 +80,7 @@ final class SettingsController: NSObject {
                                        row("Excluir aplicaciones (identificadores separados por ;)", excluded),
                                        row("Permitir solo estas aplicaciones (opcional)", allowed), numbers,
                                        row("Separador para selección múltiple (\\n = salto, \\t = tabulador)", separator),
-                                       row("Atajo global (sin permisos de monitorización del teclado)", shortcut),
+                                       row("Atajo global (sin permisos de monitorización del teclado)", shortcutGroup),
                                        row("Apariencia", appearance), warning, actions])
         stack.orientation = .vertical; stack.alignment = .leading; stack.spacing = 11; stack.translatesAutoresizingMaskIntoConstraints = false
         let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 600, height: 720))
@@ -89,8 +108,26 @@ final class SettingsController: NSObject {
         days.stringValue = String(d.integer(forKey: "days")); count.stringValue = String(d.integer(forKey: "maxCount"))
         size.stringValue = String(d.integer(forKey: "megabytes")); poll.stringValue = String(d.integer(forKey: "pollMilliseconds"))
         separator.stringValue = preferences.separator.replacingOccurrences(of: "\n", with: "\\n").replacingOccurrences(of: "\t", with: "\\t")
-        shortcut.selectItem(at: shortcuts.firstIndex(where: { $0.1 == d.integer(forKey: "hotKey") && $0.2 == d.integer(forKey: "hotModifiers") }) ?? 0)
+        recorder.cancelRecording()
+        pendingShortcut = preferences.shortcut
+        shortcut.selectItem(at: shortcuts.firstIndex(of: pendingShortcut) ?? shortcuts.count)
+        refreshShortcut()
         appearance.selectItem(at: ["system", "light", "dark"].firstIndex(of: d.string(forKey: "appearance") ?? "system") ?? 0)
+    }
+    func windowWillClose(_ notification: Notification) { recorder.cancelRecording() }
+    func windowDidResignKey(_ notification: Notification) { recorder.cancelRecording() }
+    private func refreshShortcut() {
+        recorder.isEnabled = shortcut.indexOfSelectedItem == shortcuts.count
+        shortcutValue.stringValue = pendingShortcut.description
+        shortcutMessage.stringValue = "Al menos un modificador. Teclas físicas: referencia ANSI; la leyenda puede variar según tu teclado. Guardar aplica el cambio."
+    }
+    @objc private func shortcutChanged() {
+        recorder.cancelRecording()
+        if shortcuts.indices.contains(shortcut.indexOfSelectedItem) { pendingShortcut = shortcuts[shortcut.indexOfSelectedItem] }
+        refreshShortcut()
+    }
+    @objc private func resetShortcut() {
+        recorder.cancelRecording(); pendingShortcut = .initial; shortcut.selectItem(at: 0); refreshShortcut()
     }
     private func normalized(_ field: NSTextField) throws -> String {
         let ids = field.stringValue.components(separatedBy: CharacterSet(charactersIn: ";\n,"))
@@ -101,6 +138,7 @@ final class SettingsController: NSObject {
         return ids.joined(separator: "\n")
     }
     @objc private func save() {
+        recorder.cancelRecording()
         do {
             guard let daysValue = Int(days.stringValue), (0...36500).contains(daysValue),
                   let countValue = Int(count.stringValue), (1...100000).contains(countValue),
@@ -115,14 +153,23 @@ final class SettingsController: NSObject {
                 alert.addButton(withTitle: "Activar captura"); alert.addButton(withTitle: "Cancelar")
                 guard alert.runModal() == .alertFirstButtonReturn else { return }
             }
+            // Do not persist any new shortcut unless Carbon has accepted it.
+            try pendingShortcut.validate()
+            do { try onShortcutSave?(pendingShortcut) }
+            catch {
+                pendingShortcut = preferences.shortcut
+                shortcut.selectItem(at: shortcuts.firstIndex(of: pendingShortcut) ?? shortcuts.count)
+                refreshShortcut()
+                shortcutMessage.stringValue = "No se aplicó el cambio. Se conserva: \(pendingShortcut.description). \(error.localizedDescription)"
+                throw error
+            }
+            try pendingShortcut.persist(in: preferences.defaults)
             let d = preferences.defaults
             d.set(capture.state == .on, forKey: "captureEnabled"); d.set(autoPaste.state == .on, forKey: "autoPaste")
             d.set(custom.state == .on, forKey: "customTypes"); d.set(reorder.state == .on, forKey: "reorder")
             d.set(excludedValue, forKey: "excluded"); d.set(allowedValue, forKey: "allowed")
             d.set(daysValue, forKey: "days"); d.set(countValue, forKey: "maxCount"); d.set(sizeValue, forKey: "megabytes"); d.set(pollValue, forKey: "pollMilliseconds")
             d.set(separator.stringValue.replacingOccurrences(of: "\\n", with: "\n").replacingOccurrences(of: "\\t", with: "\t"), forKey: "separator")
-            let hotkey = shortcuts[shortcut.indexOfSelectedItem]
-            d.set(hotkey.1, forKey: "hotKey"); d.set(hotkey.2, forKey: "hotModifiers")
             d.set(["system", "light", "dark"][appearance.indexOfSelectedItem], forKey: "appearance")
             // Registration failures are surfaced. No launch item is created without this opt-in.
             if login.state == .on && SMAppService.mainApp.status != .enabled { try SMAppService.mainApp.register() }
