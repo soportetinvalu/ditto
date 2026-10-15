@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import Foundation
+import Darwin
 import CryptoKit
 import ClipCore
 
@@ -50,9 +51,19 @@ final class ClipStore {
     init(path: String) throws {
         self.path = path
         let result = path.withCString { cm_open($0, &db) }
-        let validated = result == SQLITE_OK && path != ":memory:" ? cm_validate_file(path) : result
+        // Existing snapshots can enter WAL mode before -wal/-shm exist. Validate on
+        // this connection, not a second READONLY opener that may need those files.
+        let validated = result == SQLITE_OK && path != ":memory:" ? cm_validate(db) : result
         guard validated == SQLITE_OK else {
-            let error = LocalError("No se pudo abrir el historial (SQLite \(validated)). No se reemplazó la base.")
+            let systemError = db == nil ? errno : sqlite3_system_errno(db)
+            let message = db.map { String(cString: sqlite3_errmsg($0)) } ?? "no SQLite handle"
+            let operation = result == SQLITE_OK ? "cm_validate(live)" : "cm_open(READWRITE|CREATE)"
+            let fm = FileManager.default
+            let parent = URL(fileURLWithPath: path).deletingLastPathComponent().path
+            let attributes = try? fm.attributesOfItem(atPath: path)
+            let mode = (attributes?[.posixPermissions] as? NSNumber)?.intValue ?? -1
+            let detail = "stage=\(operation); path=\(path); exists=\(fm.fileExists(atPath: path)); mode=\(mode); parent=\(parent); parentExists=\(fm.fileExists(atPath: parent)); parentWritable=\(fm.isWritableFile(atPath: parent)); wal=\(fm.fileExists(atPath: path + "-wal")); shm=\(fm.fileExists(atPath: path + "-shm")); errno=\(systemError); sqlite3_errmsg=\(message)"
+            let error = LocalError("No se pudo abrir el historial (SQLite \(validated)). No se reemplazó la base. \(detail)")
             if db != nil { sqlite3_close(db); db = nil }
             throw error
         }

@@ -151,11 +151,10 @@ int cm_backup(sqlite3 *db,const char *path) {
     return rc==SQLITE_OK?closed:rc;
 }
 
-int cm_validate_file(const char *path) {
-    sqlite3 *db=NULL;sqlite3_stmt *s=NULL;
-    int rc=sqlite3_open_v2(path,&db,SQLITE_OPEN_READONLY,NULL);
-    if(rc!=SQLITE_OK) goto done;
-    rc=sqlite3_prepare_v2(db,"PRAGMA quick_check",-1,&s,NULL);
+int cm_validate(sqlite3 *db) {
+    if(!db) return SQLITE_MISUSE;
+    sqlite3_stmt *s=NULL;
+    int rc=sqlite3_prepare_v2(db,"PRAGMA quick_check",-1,&s,NULL);
     if(rc!=SQLITE_OK) goto done;
     rc=sqlite3_step(s)==SQLITE_ROW && strcmp((const char*)sqlite3_column_text(s,0),"ok")==0?SQLITE_OK:SQLITE_CORRUPT;
     sqlite3_finalize(s);s=NULL;
@@ -187,6 +186,13 @@ int cm_validate_file(const char *path) {
     if(rc==SQLITE_OK) rc=sqlite3_step(s)==SQLITE_DONE?SQLITE_OK:SQLITE_MISMATCH;
 done:
     if(s) sqlite3_finalize(s);
+    return rc;
+}
+
+int cm_validate_file(const char *path) {
+    sqlite3 *db=NULL;
+    int rc=sqlite3_open_v2(path,&db,SQLITE_OPEN_READONLY,NULL);
+    if(rc==SQLITE_OK) rc=cm_validate(db);
     if(db) sqlite3_close(db);
     return rc;
 }

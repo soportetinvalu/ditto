@@ -76,6 +76,8 @@ int main(int argc,char **argv) {
     CHECK(cm_backup(db,backup)==SQLITE_OK);CHECK(cm_validate_file(backup)==SQLITE_OK);
     CHECK(cm_backup(db,backup)!=SQLITE_OK);CHECK(cm_validate_file(backup)==SQLITE_OK);
     sqlite3 *other=NULL;CHECK(cm_open(backup,&other)==SQLITE_OK);
+    // Validate the already-open WAL connection before any further read/write.
+    CHECK(cm_validate(other)==SQLITE_OK);CHECK(cm_validate(NULL)==SQLITE_MISUSE);
     CHECK(integer(other,"SELECT count(*) FROM clips")==5);CHECK(integer(other,"SELECT count(*) FROM representations")==7);
     sqlite3_close(other);
     // Explicit permanent delete cascades only selected record's reps/buffer.

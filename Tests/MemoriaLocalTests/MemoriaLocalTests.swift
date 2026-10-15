@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import XCTest
 import AppKit
+import ClipCore
 @testable import MemoriaLocal
 
 final class MemoriaLocalTests: XCTestCase {
@@ -66,22 +67,59 @@ final class MemoriaLocalTests: XCTestCase {
         XCTAssertEqual(try other.clips().count, 1)
     }
     func testBackupMergeDoesNotOverwriteAndRefusesOverwrite() throws {
-        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        defer { try? FileManager.default.removeItem(at: directory) }
-        let store = try ClipStore(path: directory.appendingPathComponent("db.sqlite").path)
+        let fm = FileManager.default
+        let directory = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: directory) }
+        func checkpoint(_ stage: String, _ url: URL) {
+            let parent = url.deletingLastPathComponent().path
+            let mode = (try? fm.attributesOfItem(atPath: url.path)[.posixPermissions]) as? NSNumber
+            print("BACKUP stage=\(stage) path=\(url.path) exists=\(fm.fileExists(atPath: url.path)) mode=\(mode?.intValue ?? -1) parentExists=\(fm.fileExists(atPath: parent)) parentWritable=\(fm.isWritableFile(atPath: parent)) wal=\(fm.fileExists(atPath: url.path + "-wal")) shm=\(fm.fileExists(atPath: url.path + "-shm"))")
+        }
+        let database = directory.appendingPathComponent("db.sqlite")
+        checkpoint("initial-open", database)
+        let store = try ClipStore(path: database.path)
         try store.capture([text("respaldo")], title: "Respaldo", text: "respaldo", source: "test")
         let url = directory.appendingPathComponent("backup.sqlite")
-        try store.backup(to: url); XCTAssertThrowsError(try store.backup(to: url))
-        // A backup must remain valid when only the main file is transferred.
-        let standalone = directory.appendingPathComponent("standalone.sqlite")
-        try Data(contentsOf: url).write(to: standalone)
+        try store.backup(to: url)
+        checkpoint("backup-validated", url)
+        let original = try Data(contentsOf: url)
+        XCTAssertThrowsError(try store.backup(to: url))
+        XCTAssertEqual(try Data(contentsOf: url), original)
+        // Reproduce the old two-opener sequence on a separate, synthetic file.
+        let probe = directory.appendingPathComponent("wal-probe.sqlite")
+        try original.write(to: probe)
+        do {
+            var native: OpaquePointer?
+            let opened = cm_open(probe.path, &native)
+            defer { if let native { sqlite3_close(native) } }
+            XCTAssertEqual(opened, SQLITE_OK)
+            checkpoint("legacy-readonly-before", probe)
+            let legacy = cm_validate_file(probe.path)
+            let live = cm_validate(native)
+            print("BACKUP stage=legacy-comparison path=\(probe.path) cm_open=\(opened) cm_validate_file_READONLY=\(legacy) cm_validate_live=\(live)")
+            XCTAssertEqual(live, SQLITE_OK)
+        }
+        // A backup must remain valid when only the main file is transferred,
+        // including ordinary spaces, Unicode and URI punctuation in the filename.
+        let standalone = directory.appendingPathComponent("standalone ñ # ?.sqlite")
+        try original.write(to: standalone)
+        checkpoint("standalone-open", standalone)
         let copied = try ClipStore(path: standalone.path)
         XCTAssertEqual(try copied.clips().count, 1)
         XCTAssertEqual(try copied.representations(copied.clips()[0].id), [text("respaldo")])
+        checkpoint("standalone-passed", standalone)
         try store.capture([text("después")], title: "Después", text: "después", source: "test")
+        checkpoint("merge-begin", url)
         XCTAssertEqual(try store.mergeBackup(url), 0)
         XCTAssertEqual(try store.clips().count, 2)
+        XCTAssertEqual(try Data(contentsOf: url), original)
+        let corrupt = directory.appendingPathComponent("invalid.sqlite")
+        try Data("not a database".utf8).write(to: corrupt)
+        XCTAssertThrowsError(try store.mergeBackup(corrupt))
+        XCTAssertThrowsError(try store.mergeBackup(directory.appendingPathComponent("missing.sqlite")))
+        XCTAssertEqual(try store.clips().count, 2)
+        checkpoint("merge-passed-invalid-refused", url)
     }
     func testNamedPasteboardOnlyCapturePauseExclusionsAndOwnWrites() throws {
         // Never use .general in tests. Named board is independent of the user's clipboard.

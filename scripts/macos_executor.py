@@ -27,6 +27,11 @@ def main():
     summary = {"host": platform.system(), "architecture": platform.machine(), "exit_code": result.returncode,
                "compiled": result.returncode == 0, "published": False, "ui_tcc_acceptance": "pending",
                "log": "macos-executor.log", "command": command}
+    if result.returncode == 0:
+        # Emit exact inner-file sizes in the run log; inspection needs no artifact download.
+        names = ["MemoriaLocal-arm64.zip", "MemoriaLocal-source.zip", "SHA256SUMS.json", "macos-executor.log"]
+        summary["artifacts"] = [{"name": name, "size_in_bytes": (args.output / name).stat().st_size}
+                                for name in names]
     (args.output / "result.json").write_text(json.dumps(summary, indent=2) + "\n")
     print(result.stdout, end=""); print(json.dumps(summary, indent=2))
     return result.returncode

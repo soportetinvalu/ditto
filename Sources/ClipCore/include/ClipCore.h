@@ -27,6 +27,8 @@ int cm_capture(sqlite3 *db, const char *id, const char *fingerprint,
                const CMRepresentation *representations, size_t count, char out_id[37]);
 int cm_retire(sqlite3 *db, double older_than, int max_count, int64_t max_bytes, double now);
 int cm_backup(sqlite3 *db, const char *path);
+/* Validate a live connection without reopening a WAL file read-only. Does not close db. */
+int cm_validate(sqlite3 *db);
 int cm_validate_file(const char *path);
 int cm_capture_allowed(int paused, const char *source, const char *excluded_newlines,
                        const char *allowed_newlines, int transient);
