@@ -45,17 +45,18 @@ enum AccessibilityDiagnostics {
                      "instancias con el mismo bundle id: \(NSRunningApplication.runningApplications(withBundleIdentifier: id).count)",
                      "Rosetta: \(translated())"]
         var code: SecCode?
-        let selfRC = SecCodeCopySelf(SecCSFlags(rawValue: kSecCSDefaultFlags), &code)
+        // kSecCSDefaultFlags is 0; the C constant is unavailable to Swift in this SDK.
+        let selfRC = SecCodeCopySelf(SecCSFlags(rawValue: 0), &code)
         lines.append("SecCodeCopySelf: \(status(selfRC))")
         if selfRC == errSecSuccess, let code {
-            lines.append("SecCodeCheckValidity(default): \(status(SecCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSDefaultFlags), nil)))")
+            lines.append("SecCodeCheckValidity(default): \(status(SecCodeCheckValidity(code, SecCSFlags(rawValue: 0), nil)))")
             lines.append("SecCodeCheckValidity(strict): \(status(SecCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSStrictValidate), nil)))")
             var disk: SecStaticCode?
-            let diskRC = SecCodeCopyStaticCode(code, SecCSFlags(rawValue: kSecCSDefaultFlags), &disk)
+            let diskRC = SecCodeCopyStaticCode(code, SecCSFlags(rawValue: 0), &disk)
             lines.append("SecCodeCopyStaticCode: \(status(diskRC))")
             if diskRC == errSecSuccess, let disk {
                 // Static validation also checks on-disk resources; dynamic validity alone is not enough.
-                lines.append("SecStaticCodeCheckValidity(default): \(status(SecStaticCodeCheckValidity(disk, SecCSFlags(rawValue: kSecCSDefaultFlags), nil)))")
+                lines.append("SecStaticCodeCheckValidity(default): \(status(SecStaticCodeCheckValidity(disk, SecCSFlags(rawValue: 0), nil)))")
                 lines.append("SecStaticCodeCheckValidity(strict): \(status(SecStaticCodeCheckValidity(disk, SecCSFlags(rawValue: kSecCSStrictValidate), nil)))")
                 var signing: CFDictionary?
                 let signingRC = SecCodeCopySigningInformation(disk, SecCSFlags(rawValue: kSecCSSigningInformation), &signing)
