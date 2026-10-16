@@ -100,9 +100,9 @@ La persona usuaria **no necesita ejecutar comandos**. El agente/ejecutor macOS c
 python3 scripts/macos_executor.py --output RUTA_AUTORIZADA_NUEVA
 ```
 
-Ese flujo usa únicamente herramientas ya instaladas, exige host macOS arm64, ejecuta `swift test`, compila release arm64, ejecuta `--self-check`, forma `.app`, firma ad hoc local, verifica firma, adjunta fuentes y manifiestos, y escribe `macos-executor.log`/`result.json`. No instala Xcode, no abre la app, no concede permisos, no publica, no usa cuenta GitHub ni compra certificados. Si falta SDK/compiler/host devuelve código 77; un fallo de compilación/prueba conserva su salida y detiene el empaquetado.
+Ese flujo usa únicamente herramientas ya instaladas, exige host macOS arm64, ejecuta `swift test`, compila release arm64, ejecuta `--self-check`, forma `.app`, firma con la identidad estable si están ambos secrets (ad hoc con advertencia si faltan), verifica firma, adjunta fuentes y manifiestos, y escribe `macos-executor.log`/`result.json`. No instala Xcode, no abre la app, no concede permisos, no publica, no usa cuenta GitHub ni compra certificados. Si falta SDK/compiler/host devuelve código 77; un fallo de compilación/prueba conserva su salida y detiene el empaquetado.
 
-La firma ad hoc **no es** Developer ID ni notarización. El bundle ID es `com.nexclip.app` y el nombre es NexClip; no compartir una compilación como release hasta la auditoría y la aceptación TCC/UI de `docs/ACEPTACION-MACOS.md`.
+La firma estable autofirmada tampoco es Developer ID ni notarización; consulta [firma y límites](docs/FIRMA.md). La firma ad hoc **no conserva una identidad TCC estable**. El bundle ID es `com.nexclip.app` y el nombre es NexClip; no compartir una compilación como release hasta la auditoría y la aceptación TCC/UI de `docs/ACEPTACION-MACOS.md`.
 
 Prueba portable local ya preparada:
 

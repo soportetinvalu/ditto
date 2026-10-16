@@ -61,12 +61,16 @@ def main():
     check("targeted_reset_no_shell", '["reset", "Accessibility", "com.nexclip.app"]' in reset and
           '"/usr/bin/tccutil"' in reset and not any(token in reset for token in ['"sudo"', '"/bin/sh"', '"All"']))
     packaging = (ROOT / "scripts/package_macos.sh").read_text()
-    check("no_unanchored_designated_requirement", "designated => identifier" not in packaging and "codesign -d -r-" in packaging)
+    signing = (ROOT / "scripts/sign_macos.sh").read_text()
+    sign_call = 'bash "$ROOT/scripts/sign_macos.sh"'
+    check("no_unanchored_designated_requirement", "designated => identifier" not in packaging + signing
+          and "codesign -d -r-" in signing and "certificate (leaf|root|0)" in signing
+          and "grep -qi 'cdhash'" in signing and sign_call in packaging)
     package = (ROOT / "Package.swift").read_text()
     check("no_remote_packages", ".package(url:" not in package and "dependencies: [.package" not in package)
     app = (source / "NexClip/App.swift").read_text()
     check("migration_before_connection", app.index("LegacyMigration.run(") < app.index("store = try ClipStore("))
-    check("icon_copied_before_signing", packaging.index('cp "$ROOT/packaging/AppIcon.icns"') < packaging.index("codesign --force"))
+    check("icon_copied_before_signing", packaging.index('cp "$ROOT/packaging/AppIcon.icns"') < packaging.index(sign_call))
     icon = (ROOT / "packaging/AppIcon.icns").read_bytes()
     import struct
     check("icns_header_and_length", icon[:4] == b"icns" and struct.unpack(">I", icon[4:8])[0] == len(icon))

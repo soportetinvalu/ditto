@@ -48,9 +48,9 @@ cp "$ROOT/LICENSE" "$ROOT/NOTICE" "$ROOT/README.md" "$APP/Contents/Resources/"
 COMMIT="$(git rev-parse HEAD)"
 python3 -c 'import pathlib,plistlib,sys; p=pathlib.Path(sys.argv[1]); v=plistlib.loads(p.read_bytes()); v["NexClipCommit"]=sys.argv[2]; p.write_bytes(plistlib.dumps(v,sort_keys=False))' "$APP/Contents/Info.plist" "$COMMIT"
 plutil -lint "$APP/Contents/Info.plist"
-# Local ad-hoc signing only; not Developer ID, notarization or permission bypass.
-codesign --force --sign - "$APP"
-codesign -d -r- "$APP"
+# Stable self-signed identity when available; ad hoc only without CI secrets.
+# Neither mode is Developer ID, notarization or a permission bypass.
+bash "$ROOT/scripts/sign_macos.sh" "$APP" "$OUT/NexClip-Developer.cer"
 codesign --verify --deep --strict --verbose=2 "$APP"
 # Ephemeral CI only: prove Apple's targeted reset runs without sudo, without
 # launching the app, granting any permission, or affecting another bundle.
@@ -70,4 +70,4 @@ ditto -x -k "$OUT/NexClip-arm64.zip" "$OUT/roundtrip"
 test -x "$OUT/roundtrip/NexClip.app/Contents/MacOS/NexClip"
 codesign --verify --deep --strict --verbose=2 "$OUT/roundtrip/NexClip.app"
 python3 -c 'import hashlib,json,pathlib,sys; p=pathlib.Path(sys.argv[1]); files=[p/"NexClip-source.zip",p/"NexClip-arm64.zip"]; (p/"SHA256SUMS.json").write_text(json.dumps({f.name:hashlib.sha256(f.read_bytes()).hexdigest() for f in files},indent=2)+"\n")' "$OUT"
-printf '%s\n' 'PASS: compiled/tested, local ad-hoc .app + corresponding source. Not notarized or published. UI/TCC acceptance still required.'
+printf '%s\n' 'PASS: compiled/tested, signed .app + corresponding source. Not notarized or published. UI/TCC acceptance still required.'

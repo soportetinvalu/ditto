@@ -18,7 +18,7 @@ def main():
     files = sorted(p for p in ROOT.rglob("*") if p.is_file() and not p.is_symlink()
                    and not set(p.relative_to(ROOT).parts).intersection(EXCLUDE)
                    and (p.relative_to(ROOT).parts[0] in ALLOWED_DIRS or p.name in ALLOWED_FILES)
-                   and (p.suffix in {".swift", ".c", ".h", ".py", ".sh", ".md", ".plist"} or p.name in ALLOWED_FILES)
+                   and (p.suffix in {".swift", ".c", ".h", ".py", ".sh", ".md", ".plist", ".png", ".icns"} or p.name in ALLOWED_FILES)
                    and not p.name.startswith(".env")
                    and ROOT in p.resolve().parents
                    and p.resolve() != target)
