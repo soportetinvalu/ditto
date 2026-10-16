@@ -66,7 +66,11 @@ final class LegacyMigrationTests: XCTestCase {
             XCTAssertNil(try LegacyMigration.run(applicationSupport: root, defaults: defaults, destinationDomain: domain,
                 legacyPreferences: ["captureEnabled": true], log: root.appendingPathComponent("migration.log")))
             XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("NexClip/history.sqlite").path))
-            XCTAssertNil(defaults.object(forKey: "captureEnabled"))
+            // The registration domain is shared across UserDefaults instances in this process.
+            // No-op means no persistent writes, not absence of registered fallback values.
+            XCTAssertNil(defaults.persistentDomain(forName: domain)?["captureEnabled"])
+            XCTAssertNil(defaults.persistentDomain(forName: domain)?[LegacyMigration.dateKey])
+            XCTAssertFalse(FileManager.default.fileExists(atPath: root.appendingPathComponent("migration.log").path))
         }
     }
     func testMigrationLeavesEntireSourceAndBackupsIntactAndIsIdempotent() throws {
