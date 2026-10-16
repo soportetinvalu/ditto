@@ -242,12 +242,29 @@ final class MemoriaLocalTests: XCTestCase {
         let alert = try XCTUnwrap(PasteCoordinator.accessibilityAlert(isTrusted: false))
         XCTAssertEqual(alert.messageText, "Permitir el pegado automático")
         XCTAssertEqual(alert.buttons.map(\.title), ["Abrir Accesibilidad", "Solo copiar"])
-        XCTAssertTrue(alert.informativeText.contains("Al actualizar la app, macOS olvida el permiso anterior"))
+        XCTAssertTrue(alert.informativeText.contains("Al actualizar la app, macOS puede olvidar el permiso anterior"))
         XCTAssertTrue(alert.informativeText.contains("quita la entrada «Memoria Local» con −"))
         XCTAssertTrue(alert.informativeText.contains("vuelve a añadirla y concederlo"))
         XCTAssertTrue(alert.informativeText.contains("pegar manualmente"))
         XCTAssertEqual(PasteCoordinator.accessibilitySettingsURL?.absoluteString,
                        "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+    }
+    func testTranslocatedAccessibilityAdviceUsesRunningBundleAndNeverOverridesTrust() throws {
+        _ = NSApplication.shared
+        let translocated = URL(fileURLWithPath: "/private/var/folders/xx/T/AppTranslocation/UUID/d/Memoria Local.app")
+        let installed = URL(fileURLWithPath: "/Applications/Memoria Local.app")
+        XCTAssertTrue(PasteCoordinator.isTranslocated(bundleURL: translocated))
+        XCTAssertFalse(PasteCoordinator.isTranslocated(bundleURL: installed))
+        XCTAssertFalse(PasteCoordinator.isTranslocated(bundleURL: URL(fileURLWithPath: "/Downloads/AppTranslocation-notes/Memoria Local.app")))
+        XCTAssertNil(PasteCoordinator.accessibilityAlert(isTrusted: true, bundleURL: translocated))
+        let alert = try XCTUnwrap(PasteCoordinator.accessibilityAlert(isTrusted: false, bundleURL: translocated))
+        XCTAssertTrue(alert.informativeText.contains("ruta de App Translocation"))
+        XCTAssertTrue(alert.informativeText.contains("a Aplicaciones con Finder"))
+        XCTAssertTrue(alert.informativeText.contains("menú Salir"))
+        XCTAssertTrue(alert.informativeText.contains("Ruta de esta copia: \(translocated.path)"))
+        let regular = try XCTUnwrap(PasteCoordinator.accessibilityAlert(isTrusted: false, bundleURL: installed))
+        XCTAssertFalse(regular.informativeText.contains("ruta de App Translocation"))
+        XCTAssertTrue(regular.informativeText.contains("Ruta de esta copia: \(installed.path)"))
     }
     func testCopyFallbackUsesNamedPasteboardWithoutAccessibilityOrEvents() throws {
         let board = NSPasteboard(name: NSPasteboard.Name("MemoriaLocalFallback." + UUID().uuidString))

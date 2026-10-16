@@ -147,11 +147,17 @@ final class PasteCoordinator {
         if app?.processIdentifier != ProcessInfo.processInfo.processIdentifier { destination = app }
     }
     static let accessibilitySettingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
-    static func accessibilityAlert(isTrusted: Bool) -> NSAlert? {
+    static func isTranslocated(bundleURL: URL) -> Bool {
+        // Recognize the current macOS path marker; this is not a public translocation API.
+        bundleURL.pathComponents.contains("AppTranslocation")
+    }
+    static func accessibilityAlert(isTrusted: Bool, bundleURL: URL = Bundle.main.bundleURL) -> NSAlert? {
         guard !isTrusted else { return nil }
         let alert = NSAlert()
         alert.messageText = "Permitir el pegado automático"
-        alert.informativeText = "Accesibilidad permite enviar una sola pulsación ⌘V a la aplicación anterior. Al actualizar la app, macOS olvida el permiso anterior: si ya lo habías concedido, quita la entrada «Memoria Local» con − en Accesibilidad y vuelve a añadirla y concederlo. La copia ya está disponible para pegar manualmente."
+        let locationAdvice = isTranslocated(bundleURL: bundleURL)
+            ? "Esta copia se ejecuta desde una ruta de App Translocation: sal de Memoria Local con el menú Salir, mueve «Memoria Local.app» a Aplicaciones con Finder y ábrela desde allí antes de conceder el permiso. " : ""
+        alert.informativeText = locationAdvice + "Accesibilidad permite enviar una sola pulsación ⌘V a la aplicación anterior. Al actualizar la app, macOS puede olvidar el permiso anterior: si ya lo habías concedido, quita la entrada «Memoria Local» con − en Accesibilidad y vuelve a añadirla y concederlo. Después, sal de la app con el menú Salir y vuelve a abrirla desde Aplicaciones. La copia ya está disponible para pegar manualmente.\n\nRuta de esta copia: \(bundleURL.path)"
         alert.addButton(withTitle: "Abrir Accesibilidad"); alert.addButton(withTitle: "Solo copiar")
         return alert
     }
