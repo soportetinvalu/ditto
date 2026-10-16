@@ -33,6 +33,7 @@ elif name == 'codesign':
     if '--verify' in args and fail == 'verify': sys.exit(7)
     if '-r-' in args:
         if fail == 'dr': print('designated => cdhash H"0123456789abcdef"')
+        elif fail == 'root': print('designated => identifier "com.example.fixture" and certificate root = H"0123456789abcdef"')
         else: print('designated => identifier "com.example.fixture" and certificate leaf = H"0123456789abcdef"')
     if '-dvv' in args:
         print('Authority=Other' if fail == 'authority' else 'Authority=NexClip Developer')
@@ -75,6 +76,12 @@ class Lifecycle(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertTrue(cert)
         self.assertIn('PASS: stable certificate-based', result.stdout)
+
+    def test_stable_root_certificate(self):
+        result, cert = self.exercise(fail='root')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(cert)
+        self.assertIn('certificate root =', result.stdout)
 
     def test_missing_secrets(self):
         result, cert = self.exercise(secrets=False)

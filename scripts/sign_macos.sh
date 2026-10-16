@@ -92,7 +92,7 @@ printf '%s\n' "$DR" "$DETAILS"
 if [[ "$STABLE" == true ]]; then
   # Check the designated requirement, not CDHash in the verbose signature metadata.
   DESIGNATED="$(printf '%s\n' "$DR" | grep '^designated =>')"
-  if ! printf '%s\n' "$DESIGNATED" | grep -Eq 'anchor|certificate (leaf|0)'; then
+  if ! printf '%s\n' "$DESIGNATED" | grep -Eq 'anchor|certificate (leaf|root|0)'; then
     printf '%s\n' 'ERROR: designated requirement has no certificate anchor.' >&2
     exit 1
   fi
