@@ -157,15 +157,74 @@ final class PasteCoordinator {
         alert.messageText = "Permitir el pegado automático"
         let locationAdvice = isTranslocated(bundleURL: bundleURL)
             ? "Esta copia se ejecuta desde una ruta de App Translocation: sal de Memoria Local con el menú Salir, mueve «Memoria Local.app» a Aplicaciones con Finder y ábrela desde allí antes de conceder el permiso. " : ""
-        alert.informativeText = locationAdvice + "Accesibilidad permite enviar una sola pulsación ⌘V a la aplicación anterior. Al actualizar la app, macOS puede olvidar el permiso anterior: si ya lo habías concedido, quita la entrada «Memoria Local» con − en Accesibilidad y vuelve a añadirla y concederlo. Después, sal de la app con el menú Salir y vuelve a abrirla desde Aplicaciones. La copia ya está disponible para pegar manualmente.\n\nRuta de esta copia: \(bundleURL.path)"
-        alert.informativeText += "\n\nSi el interruptor ya está activo y sigue fallando, pulsa Copiar diagnóstico y comparte ese texto; no repitas los pasos indefinidamente. No incluye tu historial."
-        alert.addButton(withTitle: "Abrir Accesibilidad"); alert.addButton(withTitle: "Solo copiar")
+        alert.informativeText = locationAdvice + "Accesibilidad permite enviar una sola pulsación ⌘V a la aplicación anterior. Pulsa Solicitar permiso para pedir el aviso oficial de macOS. La copia ya está disponible para pegar manualmente.\n\n" + accessibilityRecoveryInstruction + "\n\nRuta de esta copia: \(bundleURL.path)"
+        alert.informativeText += "\n\nSi sigue fallando, pulsa Copiar diagnóstico y comparte ese texto; no repitas los pasos indefinidamente. No incluye tu historial."
+        alert.addButton(withTitle: "Solicitar permiso"); alert.addButton(withTitle: "Solo copiar")
         alert.addButton(withTitle: "Copiar diagnóstico")
+        alert.addButton(withTitle: "Abrir Accesibilidad")
         return alert
     }
     @discardableResult
     func copyAccessibilityDiagnostic() throws -> URL {
         try AccessibilityDiagnostics.copy(AccessibilityDiagnostics.report(), monitor: monitor)
+    }
+    static let accessibilityRecoveryInstruction = "Si macOS no muestra su propio aviso, quita la entrada de Memoria Local con − en Accesibilidad y vuelve a pulsar Solicitar permiso"
+
+    /// Poll even inside NSAlert's modal run loop; never request from a timer/activation.
+    private func runPermissionAlert(_ alert: NSAlert, wait: AccessibilityPermissionWait) -> NSApplication.ModalResponse {
+        let baseText = alert.informativeText
+        if wait.phase == .waiting {
+            alert.informativeText = "Esperando el permiso de macOS (hasta 60 s).\n\n" + baseText
+        }
+        let check: (Bool) -> Void = { onForeground in
+            wait.check(onForeground: onForeground)
+            if wait.phase == .granted {
+                NSApp.abortModal(); alert.window.orderOut(nil)
+            } else if wait.phase == .timedOut {
+                alert.informativeText = "No se ha detectado el permiso en 60 s. Puedes volver a solicitarlo o usar Solo copiar.\n\n" + baseText
+            }
+        }
+        let timer = Timer(timeInterval: 1, repeats: true) { timer in
+            check(false)
+            if wait.phase != .waiting { timer.invalidate() }
+        }
+        if wait.phase == .waiting {
+            RunLoop.main.add(timer, forMode: .common)
+            RunLoop.main.add(timer, forMode: .modalPanel)
+        }
+        let observer = NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification,
+                                                               object: NSApp, queue: nil) { _ in check(true) }
+        defer { timer.invalidate(); NotificationCenter.default.removeObserver(observer) }
+        return alert.runModal()
+    }
+
+    private func offerAccessibilityPermission() throws {
+        let wait = AccessibilityPermissionWait(isTrusted: { AXIsProcessTrusted() }, prompt: {
+            AccessibilityDiagnostics.recordPrompt()
+            _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+        })
+        defer { wait.cancel() }
+        while let alert = Self.accessibilityAlert(isTrusted: AXIsProcessTrusted()) {
+            let response = runPermissionAlert(alert, wait: wait)
+            if wait.phase == .granted { break }
+            if response == .alertFirstButtonReturn {
+                // Only this explicit button invokes the system prompt. Its return is not consent.
+                wait.request()
+                if wait.phase == .granted { break }
+            } else if response == .alertThirdButtonReturn {
+                let url = try copyAccessibilityDiagnostic()
+                onMessage?("Diagnóstico copiado (sustituye la copia seleccionada, sin guardarlo en el historial). Archivo: \(url.path)")
+                return
+            } else if response == NSApplication.ModalResponse(rawValue: NSApplication.ModalResponse.alertFirstButtonReturn.rawValue + 3),
+                      let url = Self.accessibilitySettingsURL {
+                _ = NSWorkspace.shared.open(url)
+            } else {
+                onMessage?("Copiado. Pulsa ⌘V en la aplicación de destino.")
+                return
+            }
+        }
+        // Do not send a delayed paste into Settings or another app after granting consent.
+        onMessage?("Permiso concedido. Vuelve a seleccionar la copia para pegar automáticamente, o usa ⌘V.")
     }
     func paste(_ reps: [Representation], hide: () -> Void) throws {
         let count = try monitor.write(reps)
@@ -173,19 +232,8 @@ final class PasteCoordinator {
             hide(); _ = destination?.activate(options: [.activateIgnoringOtherApps])
             onMessage?("Copiado. Pulsa ⌘V en la aplicación de destino."); return
         }
-        if let alert = Self.accessibilityAlert(isTrusted: AXIsProcessTrusted()) {
-            // Only explicit user action opens Settings, never startup or polling.
-            let response = alert.runModal()
-            if response == .alertThirdButtonReturn {
-                let url = try copyAccessibilityDiagnostic()
-                onMessage?("Diagnóstico copiado (sustituye la copia seleccionada, sin guardarlo en el historial). Archivo: \(url.path)")
-                return
-            }
-            if response == .alertFirstButtonReturn, let url = Self.accessibilitySettingsURL {
-                _ = NSWorkspace.shared.open(url)
-            }
-            // Do not queue a paste waiting for permission; it may land in an unrelated app.
-            onMessage?("Copiado. El permiso no provoca un pegado pendiente: usa ⌘V o vuelve a seleccionar.")
+        if !AXIsProcessTrusted() {
+            try offerAccessibilityPermission()
             return
         }
         guard let app = destination, !app.isTerminated, app.processIdentifier != ProcessInfo.processInfo.processIdentifier else {

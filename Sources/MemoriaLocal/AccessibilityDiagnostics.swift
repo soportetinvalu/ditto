@@ -30,6 +30,16 @@ enum AccessibilityDiagnostics {
         let error = errno
         return error == ENOATTR ? "false" : "desconocido (errno=\(error))"
     }
+    // This process only: recording never requests permission; the explicit button does.
+    private(set) static var promptInvocationCount = 0
+    private(set) static var lastPromptAt: Date?
+    static func recordPrompt(at date: Date = Date()) {
+        promptInvocationCount += 1; lastPromptAt = date
+    }
+    static func promptSummary(count: Int, lastAt: Date?) -> String {
+        let when = lastAt.map { ISO8601DateFormatter().string(from: $0) } ?? "nunca"
+        return "kAXTrustedCheckOptionPrompt: prompt=true invocado en este proceso: \(count > 0); llamadas: \(count); última invocación (UTC): \(when)"
+    }
     static func report(bundle: Bundle = .main) -> String {
         let info = bundle.infoDictionary ?? [:]
         let id = bundle.bundleIdentifier ?? "sin identificador"
@@ -40,7 +50,7 @@ enum AccessibilityDiagnostics {
                      "bundle: \(bundle.bundleURL.path)", "ejecutable: \(bundle.executableURL?.path ?? "desconocido")",
                      "pid: \(ProcessInfo.processInfo.processIdentifier)", "bundle id: \(id)",
                      "AXIsProcessTrusted(): \(AXIsProcessTrusted())",
-                     "kAXTrustedCheckOptionPrompt: no usado; AXIsProcessTrusted() no recibe opciones ni solicita permiso",
+                     promptSummary(count: promptInvocationCount, lastAt: lastPromptAt),
                      "quarantine (bundle): \(quarantine(bundle.bundleURL.path))",
                      "instancias con el mismo bundle id: \(NSRunningApplication.runningApplications(withBundleIdentifier: id).count)",
                      "Rosetta: \(translated())"]

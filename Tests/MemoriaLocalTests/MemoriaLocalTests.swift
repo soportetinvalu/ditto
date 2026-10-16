@@ -241,10 +241,10 @@ final class MemoriaLocalTests: XCTestCase {
         XCTAssertNil(PasteCoordinator.accessibilityAlert(isTrusted: true))
         let alert = try XCTUnwrap(PasteCoordinator.accessibilityAlert(isTrusted: false))
         XCTAssertEqual(alert.messageText, "Permitir el pegado automático")
-        XCTAssertEqual(alert.buttons.map(\.title), ["Abrir Accesibilidad", "Solo copiar", "Copiar diagnóstico"])
-        XCTAssertTrue(alert.informativeText.contains("Al actualizar la app, macOS puede olvidar el permiso anterior"))
-        XCTAssertTrue(alert.informativeText.contains("quita la entrada «Memoria Local» con −"))
-        XCTAssertTrue(alert.informativeText.contains("vuelve a añadirla y concederlo"))
+        XCTAssertEqual(alert.buttons.map(\.title), ["Solicitar permiso", "Solo copiar", "Copiar diagnóstico", "Abrir Accesibilidad"])
+        XCTAssertTrue(alert.informativeText.contains("aviso oficial de macOS"))
+        XCTAssertTrue(alert.informativeText.contains("Si macOS no muestra su propio aviso, quita la entrada de Memoria Local con − en Accesibilidad y vuelve a pulsar Solicitar permiso"))
+        XCTAssertFalse(alert.informativeText.contains("vuelve a añadirla"))
         XCTAssertTrue(alert.informativeText.contains("pegar manualmente"))
         XCTAssertEqual(PasteCoordinator.accessibilitySettingsURL?.absoluteString,
                        "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
@@ -266,10 +266,74 @@ final class MemoriaLocalTests: XCTestCase {
         XCTAssertFalse(regular.informativeText.contains("ruta de App Translocation"))
         XCTAssertTrue(regular.informativeText.contains("Ruta de esta copia: \(installed.path)"))
     }
+    func testAccessibilityWaitDoesNotPromptWhenAlreadyTrustedOrOnPassiveCheck() {
+        var prompts = 0
+        let wait = AccessibilityPermissionWait(isTrusted: { true }, prompt: { prompts += 1 })
+        wait.check(onForeground: true)
+        XCTAssertEqual(wait.phase, .idle); XCTAssertEqual(prompts, 0)
+        wait.request()
+        XCTAssertEqual(wait.phase, .granted); XCTAssertEqual(prompts, 0)
+    }
+    func testAccessibilityWaitPromptIsNotConsentAndGrantIsObservedOnce() {
+        var trusted = false; var prompts = 0; var reads = 0
+        let wait = AccessibilityPermissionWait(isTrusted: { reads += 1; return trusted }, prompt: { prompts += 1 })
+        wait.request()
+        XCTAssertEqual(prompts, 1); XCTAssertEqual(wait.phase, .waiting)
+        wait.check(); XCTAssertEqual(wait.phase, .waiting)
+        trusted = true; wait.check()
+        XCTAssertEqual(wait.phase, .granted)
+        let finalReads = reads
+        wait.check(); wait.check(onForeground: true)
+        XCTAssertEqual(reads, finalReads); XCTAssertEqual(prompts, 1)
+    }
+    func testAccessibilityWaitStopsAtExactlySixtySecondsAndRetryRestartsClock() {
+        var now: TimeInterval = 100; var reads = 0; var prompts = 0
+        let wait = AccessibilityPermissionWait(clock: { now }, isTrusted: { reads += 1; return false }, prompt: { prompts += 1 })
+        wait.request()
+        now = 159.999; wait.check(); XCTAssertEqual(wait.phase, .waiting)
+        now = 160; wait.check(); XCTAssertEqual(wait.phase, .timedOut)
+        let finalReads = reads
+        now = 200; wait.check(); XCTAssertEqual(reads, finalReads)
+        wait.request(); XCTAssertEqual(wait.phase, .waiting); XCTAssertEqual(prompts, 2)
+        now = 259.999; wait.check(); XCTAssertEqual(wait.phase, .waiting)
+        now = 260; wait.check(); XCTAssertEqual(wait.phase, .timedOut)
+    }
+    func testAccessibilityWaitForegroundRecognizesGrantEvenAfterTimeoutWithoutReprompting() {
+        var now: TimeInterval = 0; var trusted = false; var prompts = 0
+        let wait = AccessibilityPermissionWait(clock: { now }, isTrusted: { trusted }, prompt: { prompts += 1 })
+        wait.request(); now = 60; wait.check()
+        XCTAssertEqual(wait.phase, .timedOut)
+        trusted = true; wait.check(); XCTAssertEqual(wait.phase, .timedOut)
+        wait.check(onForeground: true)
+        XCTAssertEqual(wait.phase, .granted); XCTAssertEqual(prompts, 1)
+    }
+    func testAccessibilityWaitCancellationCannotGrantOrRequestFromPolling() {
+        var trusted = false; var prompts = 0
+        let wait = AccessibilityPermissionWait(isTrusted: { trusted }, prompt: { prompts += 1 })
+        wait.request(); wait.cancel(); trusted = true
+        wait.check(); wait.check(onForeground: true)
+        XCTAssertEqual(wait.phase, .cancelled); XCTAssertEqual(prompts, 1)
+        wait.request(); XCTAssertEqual(wait.phase, .granted); XCTAssertEqual(prompts, 1)
+    }
+    func testAccessibilityPromptDiagnosticRecordsInvocationAndUTCWithoutClaimingConsent() {
+        let initialCount = AccessibilityDiagnostics.promptInvocationCount
+        let date = Date(timeIntervalSince1970: 1_700_000_000)
+        AccessibilityDiagnostics.recordPrompt(at: date)
+        XCTAssertEqual(AccessibilityDiagnostics.promptInvocationCount, initialCount + 1)
+        XCTAssertEqual(AccessibilityDiagnostics.lastPromptAt, date)
+        let summary = AccessibilityDiagnostics.promptSummary(count: 1, lastAt: date)
+        XCTAssertTrue(summary.contains("prompt=true invocado en este proceso: true; llamadas: 1"))
+        XCTAssertTrue(summary.contains("2023-11-14T22:13:20Z"))
+        let never = AccessibilityDiagnostics.promptSummary(count: 0, lastAt: nil)
+        XCTAssertTrue(never.contains("proceso: false; llamadas: 0")); XCTAssertTrue(never.contains("nunca"))
+        let before = AccessibilityDiagnostics.promptInvocationCount
+        XCTAssertTrue(AccessibilityDiagnostics.report().contains(summary.replacingOccurrences(of: "llamadas: 1", with: "llamadas: \(before)")))
+        XCTAssertEqual(AccessibilityDiagnostics.promptInvocationCount, before)
+    }
     func testAccessibilityDiagnosticReportIsLocalAndDoesNotPrompt() {
         let report = AccessibilityDiagnostics.report()
         for key in ["macOS:", "versión:", "commit:", "bundle:", "ejecutable:", "pid:", "bundle id:",
-                    "AXIsProcessTrusted():", "kAXTrustedCheckOptionPrompt: no usado", "quarantine (bundle):",
+                    "AXIsProcessTrusted():", "kAXTrustedCheckOptionPrompt: prompt=true invocado en este proceso:", "quarantine (bundle):",
                     "instancias con el mismo bundle id:", "Rosetta:", "SecCodeCopySelf:"] {
             XCTAssertTrue(report.contains(key), "Falta \(key)")
         }
