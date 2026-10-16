@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only
- * Original implementation for Memoria Local. No Ditto source copied.
+ * Original implementation for NexClip. No Ditto source copied.
  */
 #include "ClipCore.h"
 #include <string.h>

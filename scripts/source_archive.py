@@ -22,19 +22,19 @@ def main():
                    and not p.name.startswith(".env")
                    and ROOT in p.resolve().parents
                    and p.resolve() != target)
-    required = {"LICENSE", "NOTICE", "Package.swift", "Sources/ClipCore/core.c", "Sources/MemoriaLocal/App.swift"}
+    required = {"LICENSE", "NOTICE", "Package.swift", "Sources/ClipCore/core.c", "Sources/NexClip/App.swift"}
     paths = {p.relative_to(ROOT).as_posix() for p in files}
     if not required.issubset(paths):
         raise SystemExit("BLOCKED: missing source/license files")
     manifest = {p.relative_to(ROOT).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
     with zipfile.ZipFile(target, "x", compression=zipfile.ZIP_DEFLATED) as archive:
         for file in files:
-            archive.write(file, "MemoriaLocal-source/" + file.relative_to(ROOT).as_posix())
-        archive.writestr("MemoriaLocal-source/SOURCE-SHA256.json", json.dumps(manifest, indent=2) + "\n")
+            archive.write(file, "NexClip-source/" + file.relative_to(ROOT).as_posix())
+        archive.writestr("NexClip-source/SOURCE-SHA256.json", json.dumps(manifest, indent=2) + "\n")
     with zipfile.ZipFile(target) as archive:
         assert archive.testzip() is None
         for name, digest in manifest.items():
-            assert hashlib.sha256(archive.read("MemoriaLocal-source/" + name)).hexdigest() == digest
+            assert hashlib.sha256(archive.read("NexClip-source/" + name)).hexdigest() == digest
     print(f"PASS corresponding source: {len(files)} files; manifest verified")
 
 

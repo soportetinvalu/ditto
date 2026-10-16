@@ -55,7 +55,7 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
         panel = HistoryPanel(contentRect: NSRect(x: 0, y: 0, width: 550, height: 470),
                              styleMask: [.titled, .closable, .resizable, .utilityWindow], backing: .buffered, defer: false)
         super.init()
-        panel.title = "Memoria Local — historial"
+        panel.title = "NexClip — historial"
         panel.isReleasedWhenClosed = false; panel.level = .floating
         panel.hidesOnDeactivate = true
         panel.minSize = NSSize(width: 450, height: 300)
@@ -374,7 +374,7 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
                 case "exportStandard": try exportStandard()
                 case "import": try importArchive()
                 case "backup":
-                    if let url = saveURL(name: "MemoriaLocal-respaldo.sqlite") { try store.backup(to: url); message("Respaldo verificado: \(url.lastPathComponent)"); return }
+                    if let url = saveURL(name: "NexClip-respaldo.sqlite") { try store.backup(to: url); message("Respaldo verificado: \(url.lastPathComponent)"); return }
                 case "restoreBackup":
                     if let url = openURL(), confirm("¿Fusionar este respaldo?", "Conserva las copias actuales; no sobrescribe la base ni restaura la papelera. Crea primero un respaldo si necesitas un punto de retorno.") {
                         let count = try store.mergeBackup(url); message("Restauradas \(count) copias nuevas (sin sobrescribir)."); reloadGroups(); reload(); return

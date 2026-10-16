@@ -26,8 +26,8 @@ OUT="${1:?Executor must supply an authorized output directory}"
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 BUILD="$OUT/build"
-APP="$OUT/Memoria Local.app"
-if [[ -e "$APP" || -e "$OUT/MemoriaLocal-source.zip" || -e "$OUT/MemoriaLocal-arm64.zip" ]]; then
+APP="$OUT/NexClip.app"
+if [[ -e "$APP" || -e "$OUT/NexClip-source.zip" || -e "$OUT/NexClip-arm64.zip" ]]; then
   printf '%s\n' 'BLOCKED: output already exists; choose a fresh directory. No artifacts overwritten.' >&2
   exit 73
 fi
@@ -38,14 +38,15 @@ swift --version
 swift test --scratch-path "$BUILD" -c debug
 swift build --scratch-path "$BUILD" -c release --arch arm64
 BIN="$(swift build --scratch-path "$BUILD" -c release --arch arm64 --show-bin-path)"
-"$BIN/MemoriaLocal" --self-check
+"$BIN/NexClip" --self-check
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cp "$BIN/MemoriaLocal" "$APP/Contents/MacOS/MemoriaLocal"
+cp "$BIN/NexClip" "$APP/Contents/MacOS/NexClip"
 cp "$ROOT/packaging/Info.plist" "$APP/Contents/Info.plist"
+cp "$ROOT/packaging/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 cp "$ROOT/LICENSE" "$ROOT/NOTICE" "$ROOT/README.md" "$APP/Contents/Resources/"
 # Stamp provenance before signing; never modify the sealed bundle afterwards.
 COMMIT="$(git rev-parse HEAD)"
-python3 -c 'import pathlib,plistlib,sys; p=pathlib.Path(sys.argv[1]); v=plistlib.loads(p.read_bytes()); v["MemoriaLocalCommit"]=sys.argv[2]; p.write_bytes(plistlib.dumps(v,sort_keys=False))' "$APP/Contents/Info.plist" "$COMMIT"
+python3 -c 'import pathlib,plistlib,sys; p=pathlib.Path(sys.argv[1]); v=plistlib.loads(p.read_bytes()); v["NexClipCommit"]=sys.argv[2]; p.write_bytes(plistlib.dumps(v,sort_keys=False))' "$APP/Contents/Info.plist" "$COMMIT"
 plutil -lint "$APP/Contents/Info.plist"
 # Local ad-hoc signing only; not Developer ID, notarization or permission bypass.
 codesign --force --sign - "$APP"
@@ -56,17 +57,17 @@ codesign --verify --deep --strict --verbose=2 "$APP"
 if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
   /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP"
   printf 'TCC reset probe UID: '; /usr/bin/id -u
-  /usr/bin/tccutil reset Accessibility local.memorialocal.app
+  /usr/bin/tccutil reset Accessibility com.nexclip.app
   printf '%s\n' 'PASS: targeted Accessibility reset without sudo (CI user only).'
 fi
 # Corresponding source is always delivered alongside the binary, with exact file hashes.
-python3 "$ROOT/scripts/source_archive.py" "$OUT/MemoriaLocal-source.zip"
-ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/MemoriaLocal-arm64.zip"
+python3 "$ROOT/scripts/source_archive.py" "$OUT/NexClip-source.zip"
+ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/NexClip-arm64.zip"
 # Check the exact transport ZIP, not only the bundle before packaging.
-python3 "$ROOT/scripts/inspect_macos_signature.py" "$OUT/MemoriaLocal-arm64.zip" "$OUT/signature-inspection.json"
+python3 "$ROOT/scripts/inspect_macos_signature.py" "$OUT/NexClip-arm64.zip" "$OUT/signature-inspection.json"
 mkdir "$OUT/roundtrip"
-ditto -x -k "$OUT/MemoriaLocal-arm64.zip" "$OUT/roundtrip"
-test -x "$OUT/roundtrip/Memoria Local.app/Contents/MacOS/MemoriaLocal"
-codesign --verify --deep --strict --verbose=2 "$OUT/roundtrip/Memoria Local.app"
-python3 -c 'import hashlib,json,pathlib,sys; p=pathlib.Path(sys.argv[1]); files=[p/"MemoriaLocal-source.zip",p/"MemoriaLocal-arm64.zip"]; (p/"SHA256SUMS.json").write_text(json.dumps({f.name:hashlib.sha256(f.read_bytes()).hexdigest() for f in files},indent=2)+"\n")' "$OUT"
+ditto -x -k "$OUT/NexClip-arm64.zip" "$OUT/roundtrip"
+test -x "$OUT/roundtrip/NexClip.app/Contents/MacOS/NexClip"
+codesign --verify --deep --strict --verbose=2 "$OUT/roundtrip/NexClip.app"
+python3 -c 'import hashlib,json,pathlib,sys; p=pathlib.Path(sys.argv[1]); files=[p/"NexClip-source.zip",p/"NexClip-arm64.zip"]; (p/"SHA256SUMS.json").write_text(json.dumps({f.name:hashlib.sha256(f.read_bytes()).hexdigest() for f in files},indent=2)+"\n")' "$OUT"
 printf '%s\n' 'PASS: compiled/tested, local ad-hoc .app + corresponding source. Not notarized or published. UI/TCC acceptance still required.'

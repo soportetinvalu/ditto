@@ -4,9 +4,9 @@ import AppKit
 import Carbon
 import ClipCore
 import Security
-@testable import MemoriaLocal
+@testable import NexClip
 
-final class MemoriaLocalTests: XCTestCase {
+final class NexClipTests: XCTestCase {
     private func text(_ string: String, item: Int = 0) -> Representation {
         Representation(item: item, type: NSPasteboard.PasteboardType.string.rawValue, data: Data(string.utf8))
     }
@@ -39,7 +39,7 @@ final class MemoriaLocalTests: XCTestCase {
         XCTAssertEqual(ShortcutConfiguration.keyName(10), "Tecla física 10")
     }
     func testShortcutLegacyPreferencesAndRoundTrip() throws {
-        let suite = "MemoriaLocal-shortcut-tests-" + UUID().uuidString
+        let suite = "NexClip-shortcut-tests-" + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let preferences = Preferences(defaults)
@@ -61,7 +61,7 @@ final class MemoriaLocalTests: XCTestCase {
         XCTAssertEqual(preferences.shortcut, .initial)
     }
     func testShortcutRegistrationFailureKeepsPreviousHandleAndPreferences() throws {
-        let suite = "MemoriaLocal-shortcut-registration-" + UUID().uuidString
+        let suite = "NexClip-shortcut-registration-" + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         var calls = [String](); var fail = false
@@ -201,9 +201,9 @@ final class MemoriaLocalTests: XCTestCase {
     }
     func testNamedPasteboardOnlyCapturePauseExclusionsAndOwnWrites() throws {
         // Never use .general in tests. Named board is independent of the user's clipboard.
-        let board = NSPasteboard(name: NSPasteboard.Name("MemoriaLocalTests." + UUID().uuidString))
+        let board = NSPasteboard(name: NSPasteboard.Name("NexClipTests." + UUID().uuidString))
         defer { board.releaseGlobally() }
-        let suite = "MemoriaLocalTests." + UUID().uuidString
+        let suite = "NexClipTests." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let prefs = Preferences(defaults); defaults.set(true, forKey: "captureEnabled")
@@ -244,7 +244,7 @@ final class MemoriaLocalTests: XCTestCase {
         XCTAssertEqual(alert.messageText, "Permitir el pegado automático")
         XCTAssertEqual(alert.buttons.map(\.title), ["Solicitar permiso", "Solo copiar", "Copiar diagnóstico", "Abrir Accesibilidad"])
         XCTAssertTrue(alert.informativeText.contains("aviso oficial de macOS"))
-        XCTAssertTrue(alert.informativeText.contains("Restablecer permiso de Accesibilidad en Ajustes de Memoria Local"))
+        XCTAssertTrue(alert.informativeText.contains("Restablecer permiso de Accesibilidad en Ajustes de NexClip"))
         XCTAssertFalse(alert.informativeText.contains("vuelve a añadirla"))
         XCTAssertTrue(alert.informativeText.contains("pegar manualmente"))
         XCTAssertEqual(PasteCoordinator.accessibilitySettingsURL?.absoluteString,
@@ -252,11 +252,11 @@ final class MemoriaLocalTests: XCTestCase {
     }
     func testTranslocatedAccessibilityAdviceUsesRunningBundleAndNeverOverridesTrust() throws {
         _ = NSApplication.shared
-        let translocated = URL(fileURLWithPath: "/private/var/folders/xx/T/AppTranslocation/UUID/d/Memoria Local.app")
-        let installed = URL(fileURLWithPath: "/Applications/Memoria Local.app")
+        let translocated = URL(fileURLWithPath: "/private/var/folders/xx/T/AppTranslocation/UUID/d/NexClip.app")
+        let installed = URL(fileURLWithPath: "/Applications/NexClip.app")
         XCTAssertTrue(PasteCoordinator.isTranslocated(bundleURL: translocated))
         XCTAssertFalse(PasteCoordinator.isTranslocated(bundleURL: installed))
-        XCTAssertFalse(PasteCoordinator.isTranslocated(bundleURL: URL(fileURLWithPath: "/Downloads/AppTranslocation-notes/Memoria Local.app")))
+        XCTAssertFalse(PasteCoordinator.isTranslocated(bundleURL: URL(fileURLWithPath: "/Downloads/AppTranslocation-notes/NexClip.app")))
         XCTAssertNil(PasteCoordinator.accessibilityAlert(isTrusted: true, bundleURL: translocated))
         let alert = try XCTUnwrap(PasteCoordinator.accessibilityAlert(isTrusted: false, bundleURL: translocated))
         XCTAssertTrue(alert.informativeText.contains("ruta de App Translocation"))
@@ -328,7 +328,7 @@ final class MemoriaLocalTests: XCTestCase {
     }
     func testTargetedResetHasFixedArgumentsAndFailureNeverMeansSuccess() {
         XCTAssertEqual(AccessibilityReset.executable.path, "/usr/bin/tccutil")
-        XCTAssertEqual(AccessibilityReset.arguments, ["reset", "Accessibility", "local.memorialocal.app"])
+        XCTAssertEqual(AccessibilityReset.arguments, ["reset", "Accessibility", "com.nexclip.app"])
         XCTAssertTrue(AccessibilityResetResult(exitCode: 0, output: "reset").succeeded)
         XCTAssertFalse(AccessibilityResetResult(exitCode: 1, output: "denied").succeeded)
         XCTAssertFalse(AccessibilityResetResult(exitCode: -1, output: "launch failed").succeeded)
@@ -338,7 +338,7 @@ final class MemoriaLocalTests: XCTestCase {
         _ = NSApplication.shared
         let store = try ClipStore(path: ":memory:")
         let preferences = Preferences()
-        let board = NSPasteboard(name: NSPasteboard.Name("MemoriaLocalWindow." + UUID().uuidString))
+        let board = NSPasteboard(name: NSPasteboard.Name("NexClipWindow." + UUID().uuidString))
         defer { board.releaseGlobally() }
         let monitor = ClipboardMonitor(store: store, preferences: preferences, pasteboard: board)
         let paste = PasteCoordinator(monitor: monitor, preferences: preferences)
@@ -426,12 +426,12 @@ final class MemoriaLocalTests: XCTestCase {
                     "instancias con el mismo bundle id:", "Rosetta:", "SecCodeCopySelf:"] {
             XCTAssertTrue(report.contains(key), "Falta \(key)")
         }
-        XCTAssertTrue(AccessibilityDiagnostics.logURL.path.hasSuffix("Library/Logs/MemoriaLocal/diagnostico-accesibilidad.txt"))
+        XCTAssertTrue(AccessibilityDiagnostics.logURL.path.hasSuffix("Library/Logs/NexClip/diagnostico-accesibilidad.txt"))
     }
     func testDiagnosticCopySavesPrivateLogAndNeverCapturesItEvenAcrossPause() throws {
-        let board = NSPasteboard(name: NSPasteboard.Name("MemoriaLocalDiagnostic." + UUID().uuidString))
+        let board = NSPasteboard(name: NSPasteboard.Name("NexClipDiagnostic." + UUID().uuidString))
         defer { board.releaseGlobally() }
-        let suite = "MemoriaLocalDiagnostic." + UUID().uuidString
+        let suite = "NexClipDiagnostic." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(true, forKey: "captureEnabled")
@@ -462,7 +462,7 @@ final class MemoriaLocalTests: XCTestCase {
         XCTAssertEqual(try store.clips().count, 2)
     }
     func testDiagnosticSaveFailureDoesNotReplaceClipboard() throws {
-        let board = NSPasteboard(name: NSPasteboard.Name("MemoriaLocalDiagnosticFailure." + UUID().uuidString))
+        let board = NSPasteboard(name: NSPasteboard.Name("NexClipDiagnosticFailure." + UUID().uuidString))
         defer { board.releaseGlobally() }
         let monitor = ClipboardMonitor(store: try ClipStore(path: ":memory:"), preferences: Preferences(), pasteboard: board)
         board.clearContents(); board.setString("Conservar copia sintética", forType: .string)
@@ -473,9 +473,9 @@ final class MemoriaLocalTests: XCTestCase {
         XCTAssertEqual(board.string(forType: .string), "Conservar copia sintética")
     }
     func testCopyFallbackUsesNamedPasteboardWithoutAccessibilityOrEvents() throws {
-        let board = NSPasteboard(name: NSPasteboard.Name("MemoriaLocalFallback." + UUID().uuidString))
+        let board = NSPasteboard(name: NSPasteboard.Name("NexClipFallback." + UUID().uuidString))
         defer { board.releaseGlobally() }
-        let suite = "MemoriaLocalFallback." + UUID().uuidString
+        let suite = "NexClipFallback." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let preferences = Preferences(defaults)
@@ -490,9 +490,9 @@ final class MemoriaLocalTests: XCTestCase {
     }
     func testPanelFiltersUseActualStoreAndDoNotEnableCapture() throws {
         _ = NSApplication.shared
-        let board = NSPasteboard(name: NSPasteboard.Name("MemoriaLocalUI." + UUID().uuidString))
+        let board = NSPasteboard(name: NSPasteboard.Name("NexClipUI." + UUID().uuidString))
         defer { board.releaseGlobally() }
-        let suite = "MemoriaLocalUI." + UUID().uuidString
+        let suite = "NexClipUI." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let preferences = Preferences(defaults); let store = try ClipStore(path: ":memory:")
@@ -583,9 +583,9 @@ final class MemoriaLocalTests: XCTestCase {
     }
     private func withHistory(_ body: (HistoryController, NSPasteboard) throws -> Void) throws {
         _ = NSApplication.shared
-        let board = NSPasteboard(name: NSPasteboard.Name("MemoriaLocalFocus." + UUID().uuidString))
+        let board = NSPasteboard(name: NSPasteboard.Name("NexClipFocus." + UUID().uuidString))
         defer { board.releaseGlobally() }
-        let suite = "MemoriaLocalFocus." + UUID().uuidString
+        let suite = "NexClipFocus." + UUID().uuidString
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         let preferences = Preferences(defaults); defaults.set(false, forKey: "reorder")

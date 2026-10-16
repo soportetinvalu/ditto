@@ -3,7 +3,7 @@ import AppKit
 import ClipCore
 
 @main
-struct MemoriaLocalMain {
+struct NexClipMain {
     static func main() {
         if CommandLine.arguments.contains("--self-check") {
             do { try SyntheticChecks.run(); print("PASS synthetic-store-check; no clipboard access"); exit(0) }
@@ -32,10 +32,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         do {
             if let identifier = Bundle.main.bundleIdentifier,
                NSRunningApplication.runningApplications(withBundleIdentifier: identifier).contains(where: { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }) {
-                throw LocalError("Memoria Local ya está abierta. Usa su icono de la barra de menús.")
+                throw LocalError("NexClip ya está abierta. Usa su icono de la barra de menús.")
             }
-            let root = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-                .appendingPathComponent("MemoriaLocal", isDirectory: true)
+            let support = try FileManager.default.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
+            let migration = try LegacyMigration.run(applicationSupport: support, defaults: preferences.defaults,
+                legacyPreferences: preferences.defaults.persistentDomain(forName: LegacyMigration.legacyBundleID) ?? [:],
+                legacyIsRunning: !NSRunningApplication.runningApplications(withBundleIdentifier: LegacyMigration.legacyBundleID).isEmpty)
+            let root = support.appendingPathComponent(LegacyMigration.destinationDirectory, isDirectory: true)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: root.path)
             store = try ClipStore(path: root.appendingPathComponent("history.sqlite").path)
@@ -68,6 +71,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             settings.onResetPermission = { [weak self] in self?.paste.resetAccessibilityPermission() }
             installMenu()
             preferences.applyAppearance()
+            if let migration {
+                let alert = NSAlert(); alert.messageText = "NexClip — migración completada"
+                alert.informativeText = migration
+                alert.addButton(withTitle: "Continuar"); alert.runModal()
+            }
             do { try shortcut.register(preferences.shortcut) } catch { showError(error) }
             do { try applySettings() } catch { showError(error) }
             if !preferences.enabled { openHistory(); history.message("Captura desactivada. Abre Ajustes para dar consentimiento y elegir exclusiones.") }
@@ -88,7 +96,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         statusMenu.delegate = self
         let main = NSMenu(); let appMenuItem = NSMenuItem(); let appMenu = NSMenu()
         appMenu.addItem(NSMenuItem(title: "Ajustes…", action: #selector(openSettings), keyEquivalent: ","))
-        appMenu.addItem(.separator()); appMenu.addItem(NSMenuItem(title: "Salir de Memoria Local", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
+        appMenu.addItem(.separator()); appMenu.addItem(NSMenuItem(title: "Salir de NexClip", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
         appMenuItem.submenu = appMenu; main.addItem(appMenuItem)
         let editItem = NSMenuItem(title: "Edición", action: nil, keyEquivalent: ""); let editMenu = NSMenu(title: "Edición")
         for (title, selector, key) in [("Deshacer", #selector(UndoManager.undo), "z"), ("Cortar", #selector(NSText.cut(_:)), "x"),
@@ -116,8 +124,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
     private func updateStatus() {
         let paused = preferences.paused || !preferences.enabled
-        status?.button?.image = NSImage(systemSymbolName: paused ? "pause.circle" : "doc.on.clipboard", accessibilityDescription: paused ? "Memoria Local: captura detenida" : "Memoria Local: captura activa")
-        status?.button?.toolTip = "Memoria Local · \(paused ? "captura detenida" : "captura activa") · clic: historial · clic derecho: menú"
+        status?.button?.image = NSImage(systemSymbolName: paused ? "pause.circle" : "doc.on.clipboard", accessibilityDescription: paused ? "NexClip: captura detenida" : "NexClip: captura activa")
+        status?.button?.toolTip = "NexClip · \(paused ? "captura detenida" : "captura activa") · clic: historial · clic derecho: menú"
     }
     @objc private func statusClicked(_ sender: Any?) {
         if NSApp.currentEvent?.type == .rightMouseUp, let button = status.button {
@@ -128,7 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func openSettings() { settings.open() }
     @objc private func togglePause() { preferences.paused.toggle(); updateStatus(); history.reload() }
     @objc private func about() {
-        let alert = NSAlert(); alert.messageText = "Memoria Local — nombre provisional"
+        let alert = NSAlert(); alert.messageText = "NexClip"
         alert.informativeText = "Aplicación nativa local para macOS. GNU GPL versión 3. Implementación original guiada por un informe funcional de Ditto Clipboard; no es un producto de Ditto ni incluye sus marcas o logotipos. Sin nube ni telemetría. Consulta LICENSE, NOTICE y el código fuente correspondiente incluidos con la distribución. Esta compilación debe auditarse en macOS antes de distribuir."
         alert.addButton(withTitle: "Cerrar"); alert.runModal()
     }

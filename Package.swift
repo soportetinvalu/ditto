@@ -3,15 +3,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "MemoriaLocal",
+    name: "NexClip",
     platforms: [.macOS(.v13)],
-    products: [.executable(name: "MemoriaLocal", targets: ["MemoriaLocal"])],
+    products: [.executable(name: "NexClip", targets: ["NexClip"])],
     targets: [
         .target(name: "ClipCore", publicHeadersPath: "include", linkerSettings: [.linkedLibrary("sqlite3")]),
-        .executableTarget(name: "MemoriaLocal", dependencies: ["ClipCore"],
+        .executableTarget(name: "NexClip", dependencies: ["ClipCore"],
                           linkerSettings: [.linkedFramework("AppKit"), .linkedFramework("Carbon"),
                                            .linkedFramework("ApplicationServices"), .linkedFramework("ServiceManagement"),
                                            .linkedFramework("Security")]),
-        .testTarget(name: "MemoriaLocalTests", dependencies: ["MemoriaLocal", "ClipCore"])
+        .testTarget(name: "NexClipTests", dependencies: ["NexClip", "ClipCore"])
     ]
 )

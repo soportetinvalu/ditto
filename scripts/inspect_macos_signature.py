@@ -20,11 +20,11 @@ def inventory(z):
 def inspect(path):
     outer = zipfile.ZipFile(path)
     report = {"archive_sha256": hashlib.sha256(open(path, "rb").read()).hexdigest(), "outer_inventory": inventory(outer)}
-    if "MemoriaLocal-arm64.zip" in outer.namelist():
+    if "NexClip-arm64.zip" in outer.namelist():
         manifest = json.loads(outer.read("SHA256SUMS.json"))
         report["manifest_matches"] = {n: hashlib.sha256(outer.read(n)).hexdigest() == h for n, h in manifest.items()}
-        report["source_inventory"] = inventory(zipfile.ZipFile(io.BytesIO(outer.read("MemoriaLocal-source.zip"))))
-        z = zipfile.ZipFile(io.BytesIO(outer.read("MemoriaLocal-arm64.zip")))
+        report["source_inventory"] = inventory(zipfile.ZipFile(io.BytesIO(outer.read("NexClip-source.zip"))))
+        z = zipfile.ZipFile(io.BytesIO(outer.read("NexClip-arm64.zip")))
     else:
         z = outer
     report["app_inventory"] = inventory(z)

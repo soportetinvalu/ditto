@@ -10,10 +10,10 @@ import zipfile
 from inspect_macos_signature import inspect
 
 outer = zipfile.ZipFile(sys.argv[1])
-inner = zipfile.ZipFile(io.BytesIO(outer.read("MemoriaLocal-arm64.zip")))
-root = "Memoria Local.app/Contents/"
+inner = zipfile.ZipFile(io.BytesIO(outer.read("NexClip-arm64.zip")))
+root = "NexClip.app/Contents/"
 controls = {"resource": root + "Resources/README.md", "plist": root + "Info.plist",
-            "code": root + "MacOS/MemoriaLocal", "missing": root + "Resources/NOTICE",
+            "code": root + "MacOS/NexClip", "missing": root + "Resources/NOTICE",
             "unsealed": root + "checksums.txt"}
 results = {}
 with tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parents[1] / ".verification") as tmp:

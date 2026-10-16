@@ -172,7 +172,7 @@ final class PasteCoordinator {
         let alert = NSAlert()
         alert.messageText = "Permitir el pegado automático"
         let locationAdvice = isTranslocated(bundleURL: bundleURL)
-            ? "Esta copia se ejecuta desde una ruta de App Translocation: sal de Memoria Local con el menú Salir, mueve «Memoria Local.app» a Aplicaciones con Finder y ábrela desde allí antes de conceder el permiso. " : ""
+            ? "Esta copia se ejecuta desde una ruta de App Translocation: sal de NexClip con el menú Salir, mueve «NexClip.app» a Aplicaciones con Finder y ábrela desde allí antes de conceder el permiso. " : ""
         alert.informativeText = locationAdvice + "Accesibilidad permite enviar una sola pulsación ⌘V a la aplicación anterior. Pulsa Solicitar permiso para pedir el aviso oficial de macOS. La copia ya está disponible para pegar manualmente.\n\n" + accessibilityRecoveryInstruction + "\n\nRuta de esta copia: \(bundleURL.path)"
         alert.informativeText += "\n\nSi sigue fallando, pulsa Copiar diagnóstico y comparte ese texto; no repitas los pasos indefinidamente. No incluye tu historial."
         alert.addButton(withTitle: "Solicitar permiso"); alert.addButton(withTitle: "Solo copiar")
@@ -184,7 +184,7 @@ final class PasteCoordinator {
     func copyAccessibilityDiagnostic() throws -> URL {
         try AccessibilityDiagnostics.copy(AccessibilityDiagnostics.report(includeTCC: true), monitor: monitor)
     }
-    static let accessibilityRecoveryInstruction = "Si el interruptor está activo pero no se concede el permiso, usa Restablecer permiso de Accesibilidad en Ajustes de Memoria Local. Solo restablece esta app; después debes autorizarla de nuevo."
+    static let accessibilityRecoveryInstruction = "Si el interruptor está activo pero no se concede el permiso, usa Restablecer permiso de Accesibilidad en Ajustes de NexClip. Solo restablece esta app; después debes autorizarla de nuevo."
 
     private func publishPermissionState(_ text: String) {
         onPermissionState?(permissionBusy, text)
@@ -199,7 +199,7 @@ final class PasteCoordinator {
             publishPermissionState("Permiso concedido. Vuelve a seleccionar la copia para pegar; no hay pegado pendiente.")
         } else if permissionWait.phase == .timedOut {
             permissionTimer?.invalidate(); permissionTimer = nil
-            publishPermissionState("No se detectó el permiso en 60 s. Abre Ajustes de Memoria Local para restablecerlo o copiar el diagnóstico.")
+            publishPermissionState("No se detectó el permiso en 60 s. Abre Ajustes de NexClip para restablecerlo o copiar el diagnóstico.")
         }
     }
     func requestAccessibilityPermission() {

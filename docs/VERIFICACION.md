@@ -71,7 +71,7 @@ El registro histórico que sigue corresponde a la entrega inicial, anterior a lo
 
 ## Pruebas macOS preparadas, NO ejecutadas (registro histórico inicial)
 
-`Tests/MemoriaLocalTests/MemoriaLocalTests.swift` contiene **11 métodos XCTest** del código real: flujo sintético de store, hash y límites de ítems, búsqueda/regex, grupos/protección/papelera, JSON roundtrip/validaciones, backup/fusión, captura multiformato/pausa/exclusiones/autocopia en pasteboard nombrado, extracción HTML/transformaciones, fallback de copia sin AX/eventos, panel con filtros sobre store real y entradas inválidas. No hay test que use el pasteboard general de la persona usuaria.
+`Tests/NexClipTests/NexClipTests.swift` contiene **11 métodos XCTest** del código real: flujo sintético de store, hash y límites de ítems, búsqueda/regex, grupos/protección/papelera, JSON roundtrip/validaciones, backup/fusión, captura multiformato/pausa/exclusiones/autocopia en pasteboard nombrado, extracción HTML/transformaciones, fallback de copia sin AX/eventos, panel con filtros sobre store real y entradas inválidas. No hay test que use el pasteboard general de la persona usuaria.
 
 El ejecutor macOS ejecutará automáticamente esos tests y `--self-check` antes de empaquetar. Si el compilador devuelve errores, conservará el log y detendrá el proceso; **no se presupone que el código Swift compile por tener archivos**. `docs/ACEPTACION-MACOS.md` define después la comprobación observable en aplicaciones destino y los casos TCC/visuales que no cubre XCTest.
 

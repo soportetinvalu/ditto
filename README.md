@@ -1,4 +1,4 @@
-# Memoria Local (nombre provisional)
+# NexClip
 
 Implementación nativa **Swift + AppKit + SQLite**, solo macOS arm64, guiada por el informe REA ya existente de Ditto 3.25.113.0. No es un MVP de texto: el código guarda representaciones multiformato por ítem, recupera el historial, maneja grupos, favoritos, protecciones, buffers, papelera y operaciones de respaldo. **Eso no acredita paridad completa ni una app compilada:** la interfaz Swift/AppKit todavía necesita compilación y pruebas en macOS.
 
@@ -76,17 +76,21 @@ Los formatos originales se preservan para volver a pegarlos. Las imágenes se de
 
 El editor crea una copia **solo texto**, sin alterar el original. Guardar un contenido idéntico puede deduplicarse con una copia existente. No hay editor enriquecido ni vista HTML/RTF visual completa.
 
+## Identidad y migración
+
+NexClip usa `com.nexclip.app`, con bundle `NexClip.app`, ejecutable y target SwiftPM `NexClip`. Al primer arranque copia automáticamente el historial y ajustes de Memoria Local si todavía no existe una base nueva; debes salir de la versión anterior. El origen y los respaldos permanecen intactos. Consulta [migración, texto visible e icono](docs/MIGRACION-NEXCLIP.md). El permiso de Accesibilidad se autoriza de nuevo para NexClip.
+
 ## Estructura
 
 - `Sources/ClipCore/`: esquema, inserción/deduplicación transaccional, retención, backup/validación y políticas de captura. Código C de producción enlazado al SQLite del sistema.
-- `Sources/MemoriaLocal/Store.swift`: modelos, consultas parametrizadas, SHA-256, metadatos, grupos, intercambio y respaldo.
+- `Sources/NexClip/Store.swift`: modelos, consultas parametrizadas, SHA-256, metadatos, grupos, intercambio y respaldo.
 - `Services.swift`: sondeo multiformato, filtros, auto-captura excluida, consentimiento AX, retorno de foco, hotkey Carbon y previews.
 - `HistoryController.swift`: panel/AppKit, selección/teclado, acciones y gestión.
 - `SettingsController.swift`: privacidad, límites, atajo, apariencia e inicio de sesión opt-in con `SMAppService`.
 - `Shortcut.swift`: configuración física compatible con preferencias anteriores, conversión/validación/descripción, reemplazo seguro del registro y grabador first-responder sin monitor global.
 - `App.swift`: ciclo de vida/barra de menús y `--self-check` sin portapapeles.
 - `Tests/CoreTests/`: pruebas del núcleo real con SQLite real.
-- `Tests/MemoriaLocalTests/`: XCTest de Swift y portapapeles **nombrado**, nunca `.general`.
+- `Tests/NexClipTests/`: XCTest de Swift y portapapeles **nombrado**, nunca `.general`.
 
 ## Ejecución automática para el ejecutor autorizado
 
@@ -98,7 +102,7 @@ python3 scripts/macos_executor.py --output RUTA_AUTORIZADA_NUEVA
 
 Ese flujo usa únicamente herramientas ya instaladas, exige host macOS arm64, ejecuta `swift test`, compila release arm64, ejecuta `--self-check`, forma `.app`, firma ad hoc local, verifica firma, adjunta fuentes y manifiestos, y escribe `macos-executor.log`/`result.json`. No instala Xcode, no abre la app, no concede permisos, no publica, no usa cuenta GitHub ni compra certificados. Si falta SDK/compiler/host devuelve código 77; un fallo de compilación/prueba conserva su salida y detiene el empaquetado.
 
-La firma ad hoc **no es** Developer ID ni notarización. El bundle ID `local.memorialocal.app` y nombre son provisionales; no compartir una compilación como release hasta la auditoría y la aceptación TCC/UI de `docs/ACEPTACION-MACOS.md`.
+La firma ad hoc **no es** Developer ID ni notarización. El bundle ID es `com.nexclip.app` y el nombre es NexClip; no compartir una compilación como release hasta la auditoría y la aceptación TCC/UI de `docs/ACEPTACION-MACOS.md`.
 
 Prueba portable local ya preparada:
 

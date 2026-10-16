@@ -7,7 +7,7 @@ import Security
 /// Local, explicit diagnosis only. Never reads clipboard contents or the history store.
 enum AccessibilityDiagnostics {
     static let logURL = FileManager.default.homeDirectoryForCurrentUser
-        .appendingPathComponent("Library/Logs/MemoriaLocal/diagnostico-accesibilidad.txt")
+        .appendingPathComponent("Library/Logs/NexClip/diagnostico-accesibilidad.txt")
 
     private static func status(_ value: OSStatus) -> String {
         let message = SecCopyErrorMessageString(value, nil) as String? ?? "sin descripción"
@@ -46,10 +46,10 @@ enum AccessibilityDiagnostics {
     static func report(bundle: Bundle = .main, includeTCC: Bool = false) -> String {
         let info = bundle.infoDictionary ?? [:]
         let id = bundle.bundleIdentifier ?? "sin identificador"
-        var lines = ["Memoria Local — diagnóstico de Accesibilidad", "No contiene el historial ni el contenido anterior del portapapeles.",
+        var lines = ["NexClip — diagnóstico de Accesibilidad", "No contiene el historial ni el contenido anterior del portapapeles.",
                      "macOS: \(ProcessInfo.processInfo.operatingSystemVersionString)",
                      "versión: \(info["CFBundleShortVersionString"] ?? "desconocida") (\(info["CFBundleVersion"] ?? "desconocida"))",
-                     "commit: \(info["MemoriaLocalCommit"] ?? "no incorporado en este build")",
+                     "commit: \(info["NexClipCommit"] ?? "no incorporado en este build")",
                      "bundle: \(bundle.bundleURL.path)", "ejecutable: \(bundle.executableURL?.path ?? "desconocido")",
                      "pid: \(ProcessInfo.processInfo.processIdentifier)", "bundle id: \(id)",
                      "AXIsProcessTrusted(): \(AXIsProcessTrusted())",
@@ -57,6 +57,7 @@ enum AccessibilityDiagnostics {
                      "Último retorno inmediato de prompt=true: \(lastPromptReturn.map { String($0) } ?? "no invocado"); no indica que el aviso se haya mostrado ni la razón de una denegación.",
                      "AXIsProcessTrustedWithOptions(prompt:false): \(AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false] as CFDictionary))",
                      "Restablecimiento: \(lastReset)",
+                     LegacyMigration.diagnostic(),
                      "quarantine (bundle): \(quarantine(bundle.bundleURL.path))",
                      "instancias con el mismo bundle id: \(NSRunningApplication.runningApplications(withBundleIdentifier: id).count)",
                      "Rosetta: \(translated())"]

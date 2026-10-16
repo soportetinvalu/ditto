@@ -12,7 +12,7 @@ struct AccessibilityResetResult {
 /// No shell, user-supplied arguments, other services, or privilege escalation.
 enum AccessibilityReset {
     static let executable = URL(fileURLWithPath: "/usr/bin/tccutil")
-    static let arguments = ["reset", "Accessibility", "local.memorialocal.app"]
+    static let arguments = ["reset", "Accessibility", "com.nexclip.app"]
     static func run(completion: @escaping (AccessibilityResetResult) -> Void) {
         let process = Process(); let output = Pipe()
         process.executableURL = executable; process.arguments = arguments

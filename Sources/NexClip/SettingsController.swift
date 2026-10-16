@@ -59,7 +59,7 @@ final class SettingsController: NSObject, NSWindowDelegate {
         guard !permissionBusy else { return }
         // Explicit confirmation: revokes only this app's Accessibility grant.
         let alert = NSAlert(); alert.messageText = "¿Restablecer permiso de Accesibilidad?"
-        alert.informativeText = "Se retirará únicamente el permiso de Memoria Local para tu usuario y se pedirá de nuevo con el aviso oficial. No borra el historial ni cambia permisos de otras apps."
+        alert.informativeText = "Se retirará únicamente el permiso de NexClip para tu usuario y se pedirá de nuevo con el aviso oficial. No borra el historial ni cambia permisos de otras apps."
         alert.addButton(withTitle: "Restablecer"); alert.addButton(withTitle: "Cancelar")
         let response = alert.runModal(); alert.window.orderOut(nil)
         if response == .alertFirstButtonReturn { onResetPermission?() }
@@ -67,7 +67,7 @@ final class SettingsController: NSObject, NSWindowDelegate {
     private func build() {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 720), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
         window.minSize = NSSize(width: 600, height: 520)
-        window.title = "Ajustes — Memoria Local"; window.isReleasedWhenClosed = false
+        window.title = "Ajustes — NexClip"; window.isReleasedWhenClosed = false
         window.delegate = self
         let title = NSTextField(wrappingLabelWithString: "Privacidad local: sin cuenta, red, telemetría ni sincronización. El historial puede contener información sensible. No está cifrado por esta aplicación; usa FileVault si corresponde. La app en primer plano es solo una aproximación del origen.")
         title.preferredMaxLayoutWidth = 520
@@ -107,7 +107,7 @@ final class SettingsController: NSObject, NSWindowDelegate {
         diagnostic.toolTip = "Diagnóstico local de Accesibilidad y firma. No incluye el historial; reemplaza el portapapeles sin capturarlo."
         requestPermission.target = self; requestPermission.action = #selector(requestAccessibility)
         resetPermission.target = self; resetPermission.action = #selector(resetAccessibility)
-        resetPermission.toolTip = "Revoca solo Accesibilidad de Memoria Local para tu usuario y solicita de nuevo. No concede acceso por sí solo."
+        resetPermission.toolTip = "Revoca solo Accesibilidad de NexClip para tu usuario y solicita de nuevo. No concede acceso por sí solo."
         permissionMessage.preferredMaxLayoutWidth = 520
         permissionMessage.font = .systemFont(ofSize: 11)
         let permissions = NSStackView(views: [requestPermission, resetPermission]); permissions.spacing = 8

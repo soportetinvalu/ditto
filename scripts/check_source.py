@@ -38,30 +38,50 @@ def main():
     check("bash_syntax", shell.returncode == 0, shell.stderr)
     with (ROOT / "packaging/Info.plist").open("rb") as stream:
         plist = plistlib.load(stream)
-    check("plist_minimum_and_identity", plist["LSUIElement"] is True and plist["CFBundleExecutable"] == "MemoriaLocal" and plist["LSMinimumSystemVersion"] == "13.0")
+    check("plist_minimum_and_identity", plist["LSUIElement"] is True and plist["CFBundleExecutable"] == "NexClip" and plist["LSMinimumSystemVersion"] == "13.0"
+          and plist["CFBundleIdentifier"] == "com.nexclip.app" and plist["CFBundleName"] == plist["CFBundleDisplayName"] == "NexClip"
+          and plist["CFBundleIconFile"] == "AppIcon.icns")
     license_hash = hashlib.sha256((ROOT / "LICENSE").read_bytes()).hexdigest()
     check("gpl_v3_exact_text", license_hash == "3972dc9744f6499f0f9b2dbf76696f2ae7ad8af9b23dde66d6af86c9dfb36986")
-    swift_tests = (ROOT / "Tests/MemoriaLocalTests/MemoriaLocalTests.swift").read_text()
+    swift_tests = "\n".join(p.read_text() for p in sorted((ROOT / "Tests/NexClipTests").glob("*.swift")))
     check("tests_no_general_board", "NSPasteboard.general" not in swift_tests and "pasteboard: .general" not in swift_tests)
     native_source = "\n".join(p.read_text() for p in source.rglob("*.swift"))
     check("no_network_api_in_sources", not any(token in native_source for token in ["URLSession", "NWListener", "NWConnection", "import Network", "import WebKit", "WKWebView"]))
     check("no_placeholder_traps", not any(token in native_source for token in ["fatalError(", "preconditionFailure(", "TODO", "IMPLEMENT ME"]))
-    services = (source / "MemoriaLocal/Services.swift").read_text()
-    wait = (source / "MemoriaLocal/AccessibilityPermissionWait.swift").read_text()
-    tcc = (source / "MemoriaLocal/AccessibilityTCCInspection.swift").read_text()
-    reset = (source / "MemoriaLocal/AccessibilityReset.swift").read_text()
+    services = (source / "NexClip/Services.swift").read_text()
+    wait = (source / "NexClip/AccessibilityPermissionWait.swift").read_text()
+    tcc = (source / "NexClip/AccessibilityTCCInspection.swift").read_text()
+    reset = (source / "NexClip/AccessibilityReset.swift").read_text()
     check("permission_no_modal_wait_loop", "while let alert" not in services and "runPermissionAlert" not in services and
           "guard !permissionBusy, !offeringPermission" in services and "NSApp.hide(nil)" in services)
     check("duplicate_prompt_does_not_extend_deadline", wait.index("guard !isWaiting") < wait.index("deadline = clock() + 60"))
     check("tcc_inspection_readonly_own_service", "SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX" in tcc and
           "kTCCServiceAccessibility" in tcc and "client = ?1" in tcc and "client IN (?2, ?3)" in tcc and
           not any(token in tcc for token in ["SQLITE_OPEN_CREATE", "SQLITE_OPEN_READWRITE", "INSERT INTO", "DELETE FROM"]))
-    check("targeted_reset_no_shell", '["reset", "Accessibility", "local.memorialocal.app"]' in reset and
+    check("targeted_reset_no_shell", '["reset", "Accessibility", "com.nexclip.app"]' in reset and
           '"/usr/bin/tccutil"' in reset and not any(token in reset for token in ['"sudo"', '"/bin/sh"', '"All"']))
     packaging = (ROOT / "scripts/package_macos.sh").read_text()
     check("no_unanchored_designated_requirement", "designated => identifier" not in packaging and "codesign -d -r-" in packaging)
     package = (ROOT / "Package.swift").read_text()
     check("no_remote_packages", ".package(url:" not in package and "dependencies: [.package" not in package)
+    app = (source / "NexClip/App.swift").read_text()
+    check("migration_before_connection", app.index("LegacyMigration.run(") < app.index("store = try ClipStore("))
+    check("icon_copied_before_signing", packaging.index('cp "$ROOT/packaging/AppIcon.icns"') < packaging.index("codesign --force"))
+    icon = (ROOT / "packaging/AppIcon.icns").read_bytes()
+    import struct
+    check("icns_header_and_length", icon[:4] == b"icns" and struct.unpack(">I", icon[4:8])[0] == len(icon))
+    offset = 8
+    chunks = {}
+    while offset < len(icon):
+        tag, size = struct.unpack(">4sI", icon[offset:offset + 8])
+        check("icns_chunk_" + tag.decode(), size > 32 and offset + size <= len(icon) and tag not in chunks)
+        payload = icon[offset + 8:offset + size]
+        check("icns_png_" + tag.decode(), payload[:8] == b"\x89PNG\r\n\x1a\n" and payload[12:16] == b"IHDR" and payload[25] == 6)
+        chunks[tag] = struct.unpack(">II", payload[16:24])
+        offset += size
+    expected = {b"icp4":16, b"icp5":32, b"icp6":64, b"ic07":128, b"ic08":256, b"ic09":512,
+                b"ic10":1024, b"ic11":32, b"ic12":64, b"ic13":256, b"ic14":512}
+    check("icns_all_sizes_and_scales", offset == len(icon) and chunks == {tag: (px, px) for tag, px in expected.items()})
     inventory = {p.relative_to(ROOT).as_posix(): {"bytes": p.stat().st_size, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for p in files}
     result = {"checks": checks, "exit_code": 0, "matrix_states": dict(states),
               "swift_tests_prepared_not_run": len(re.findall(r"    func test\w+\(", swift_tests)),
