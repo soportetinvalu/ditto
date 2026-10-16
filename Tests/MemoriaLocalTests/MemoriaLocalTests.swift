@@ -241,7 +241,7 @@ final class MemoriaLocalTests: XCTestCase {
         XCTAssertNil(PasteCoordinator.accessibilityAlert(isTrusted: true))
         let alert = try XCTUnwrap(PasteCoordinator.accessibilityAlert(isTrusted: false))
         XCTAssertEqual(alert.messageText, "Permitir el pegado automático")
-        XCTAssertEqual(alert.buttons.map(\.title), ["Abrir Accesibilidad", "Solo copiar"])
+        XCTAssertEqual(alert.buttons.map(\.title), ["Abrir Accesibilidad", "Solo copiar", "Copiar diagnóstico"])
         XCTAssertTrue(alert.informativeText.contains("Al actualizar la app, macOS puede olvidar el permiso anterior"))
         XCTAssertTrue(alert.informativeText.contains("quita la entrada «Memoria Local» con −"))
         XCTAssertTrue(alert.informativeText.contains("vuelve a añadirla y concederlo"))
@@ -265,6 +265,59 @@ final class MemoriaLocalTests: XCTestCase {
         let regular = try XCTUnwrap(PasteCoordinator.accessibilityAlert(isTrusted: false, bundleURL: installed))
         XCTAssertFalse(regular.informativeText.contains("ruta de App Translocation"))
         XCTAssertTrue(regular.informativeText.contains("Ruta de esta copia: \(installed.path)"))
+    }
+    func testAccessibilityDiagnosticReportIsLocalAndDoesNotPrompt() {
+        let report = AccessibilityDiagnostics.report()
+        for key in ["macOS:", "versión:", "commit:", "bundle:", "ejecutable:", "pid:", "bundle id:",
+                    "AXIsProcessTrusted():", "kAXTrustedCheckOptionPrompt: no usado", "quarantine (bundle):",
+                    "instancias con el mismo bundle id:", "Rosetta:", "SecCodeCopySelf:"] {
+            XCTAssertTrue(report.contains(key), "Falta \(key)")
+        }
+        XCTAssertTrue(AccessibilityDiagnostics.logURL.path.hasSuffix("Library/Logs/MemoriaLocal/diagnostico-accesibilidad.txt"))
+    }
+    func testDiagnosticCopySavesPrivateLogAndNeverCapturesItEvenAcrossPause() throws {
+        let board = NSPasteboard(name: NSPasteboard.Name("MemoriaLocalDiagnostic." + UUID().uuidString))
+        defer { board.releaseGlobally() }
+        let suite = "MemoriaLocalDiagnostic." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(true, forKey: "captureEnabled")
+        let preferences = Preferences(defaults)
+        let store = try ClipStore(path: ":memory:")
+        let monitor = ClipboardMonitor(store: store, preferences: preferences, pasteboard: board)
+        let secret = "Contenido sintético que no debe incluirse en el diagnóstico"
+        _ = try store.capture([text(secret)], title: secret, text: secret, source: "com.test.source")
+        board.clearContents(); board.setString(secret, forType: .string)
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("diagnostico.txt")
+        let report = AccessibilityDiagnostics.report()
+        XCTAssertFalse(report.contains(secret))
+        for paused in [false, true] {
+            preferences.paused = paused
+            XCTAssertEqual(try AccessibilityDiagnostics.copy(report, monitor: monitor, destination: file), file)
+            XCTAssertEqual(try String(contentsOf: file, encoding: .utf8), report)
+            XCTAssertEqual(board.string(forType: .string), report)
+            monitor.poll(source: "com.test.source")
+            preferences.paused = false; monitor.poll(source: "com.test.source")
+            XCTAssertEqual(try store.clips().count, 1)
+        }
+        let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+        XCTAssertEqual((attributes[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+        board.clearContents(); board.setString("Nueva copia legítima", forType: .string)
+        monitor.poll(source: "com.test.source")
+        XCTAssertEqual(try store.clips().count, 2)
+    }
+    func testDiagnosticSaveFailureDoesNotReplaceClipboard() throws {
+        let board = NSPasteboard(name: NSPasteboard.Name("MemoriaLocalDiagnosticFailure." + UUID().uuidString))
+        defer { board.releaseGlobally() }
+        let monitor = ClipboardMonitor(store: try ClipStore(path: ":memory:"), preferences: Preferences(), pasteboard: board)
+        board.clearContents(); board.setString("Conservar copia sintética", forType: .string)
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try Data().write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        XCTAssertThrowsError(try AccessibilityDiagnostics.copy("Diagnóstico", monitor: monitor, destination: file.appendingPathComponent("imposible.txt")))
+        XCTAssertEqual(board.string(forType: .string), "Conservar copia sintética")
     }
     func testCopyFallbackUsesNamedPasteboardWithoutAccessibilityOrEvents() throws {
         let board = NSPasteboard(name: NSPasteboard.Name("MemoriaLocalFallback." + UUID().uuidString))

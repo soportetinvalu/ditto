@@ -48,6 +48,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             history.onSettings = { [weak self] in self?.settings.open() }
             history.onPause = { [weak self] in self?.togglePause() }
             settings.onSave = { [weak self] in try self?.applySettings() }
+            settings.onCopyDiagnostic = { [weak self] in
+                guard let paste = self?.paste else { throw LocalError("El servicio de copiado no está disponible.") }
+                return try paste.copyAccessibilityDiagnostic()
+            }
             settings.onShortcutSave = { [weak self] candidate in try self?.shortcut.register(candidate) }
             monitor.onChange = { [weak self] in self?.history.reload() }
             monitor.onMessage = { [weak self] in self?.history.message($0) }

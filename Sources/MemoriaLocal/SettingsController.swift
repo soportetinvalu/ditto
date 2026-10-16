@@ -9,6 +9,7 @@ final class SettingsController: NSObject, NSWindowDelegate {
     let preferences: Preferences
     let store: ClipStore
     var onSave: (() throws -> Void)?
+    var onCopyDiagnostic: (() throws -> URL)?
     var onShortcutSave: ((ShortcutConfiguration) throws -> Void)?
     private let recorder = ShortcutRecorder(frame: .zero)
     private let shortcutValue = NSTextField(labelWithString: "")
@@ -76,7 +77,9 @@ final class SettingsController: NSObject, NSWindowDelegate {
         let actions = NSStackView(views: [NSButton(title: "Ver datos locales", target: self, action: #selector(revealData)),
                                             NSButton(title: "Vaciar historial a papelera…", target: self, action: #selector(trashAll)),
                                             NSButton(title: "Guardar", target: self, action: #selector(save))]); actions.spacing = 8
-        let stack = NSStackView(views: [title, capture, autoPaste, custom, reorder, login,
+        let diagnostic = NSButton(title: "Copiar diagnóstico", target: self, action: #selector(copyDiagnostic))
+        diagnostic.toolTip = "Diagnóstico local de Accesibilidad y firma. No incluye el historial; reemplaza el portapapeles sin capturarlo."
+        let stack = NSStackView(views: [title, capture, autoPaste, diagnostic, custom, reorder, login,
                                        row("Excluir aplicaciones (identificadores separados por ;)", excluded),
                                        row("Permitir solo estas aplicaciones (opcional)", allowed), numbers,
                                        row("Separador para selección múltiple (\\n = salto, \\t = tabulador)", separator),
@@ -95,6 +98,19 @@ final class SettingsController: NSObject, NSWindowDelegate {
         root.layoutSubtreeIfNeeded()
         root.setFrameSize(NSSize(width: root.frame.width, height: max(920, stack.fittingSize.height + 40)))
         window.center()
+    }
+    @objc private func copyDiagnostic() {
+        let alert = NSAlert()
+        do {
+            guard let onCopyDiagnostic else { throw LocalError("El servicio de diagnóstico no está disponible.") }
+            let url = try onCopyDiagnostic()
+            alert.messageText = "Diagnóstico copiado"
+            alert.informativeText = "Pega el texto para compartirlo. No contiene el historial ni se ha guardado como una copia del historial. Sustituye el portapapeles actual. También está guardado en:\n\(url.path)"
+        } catch {
+            alert.messageText = "No se pudo completar la copia del diagnóstico"
+            alert.informativeText = error.localizedDescription
+        }
+        alert.addButton(withTitle: "Cerrar"); alert.runModal()
     }
     private func load() {
         let d = preferences.defaults

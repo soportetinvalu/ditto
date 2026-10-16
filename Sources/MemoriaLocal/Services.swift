@@ -158,8 +158,14 @@ final class PasteCoordinator {
         let locationAdvice = isTranslocated(bundleURL: bundleURL)
             ? "Esta copia se ejecuta desde una ruta de App Translocation: sal de Memoria Local con el menú Salir, mueve «Memoria Local.app» a Aplicaciones con Finder y ábrela desde allí antes de conceder el permiso. " : ""
         alert.informativeText = locationAdvice + "Accesibilidad permite enviar una sola pulsación ⌘V a la aplicación anterior. Al actualizar la app, macOS puede olvidar el permiso anterior: si ya lo habías concedido, quita la entrada «Memoria Local» con − en Accesibilidad y vuelve a añadirla y concederlo. Después, sal de la app con el menú Salir y vuelve a abrirla desde Aplicaciones. La copia ya está disponible para pegar manualmente.\n\nRuta de esta copia: \(bundleURL.path)"
+        alert.informativeText += "\n\nSi el interruptor ya está activo y sigue fallando, pulsa Copiar diagnóstico y comparte ese texto; no repitas los pasos indefinidamente. No incluye tu historial."
         alert.addButton(withTitle: "Abrir Accesibilidad"); alert.addButton(withTitle: "Solo copiar")
+        alert.addButton(withTitle: "Copiar diagnóstico")
         return alert
+    }
+    @discardableResult
+    func copyAccessibilityDiagnostic() throws -> URL {
+        try AccessibilityDiagnostics.copy(AccessibilityDiagnostics.report(), monitor: monitor)
     }
     func paste(_ reps: [Representation], hide: () -> Void) throws {
         let count = try monitor.write(reps)
@@ -169,7 +175,13 @@ final class PasteCoordinator {
         }
         if let alert = Self.accessibilityAlert(isTrusted: AXIsProcessTrusted()) {
             // Only explicit user action opens Settings, never startup or polling.
-            if alert.runModal() == .alertFirstButtonReturn, let url = Self.accessibilitySettingsURL {
+            let response = alert.runModal()
+            if response == .alertThirdButtonReturn {
+                let url = try copyAccessibilityDiagnostic()
+                onMessage?("Diagnóstico copiado (sustituye la copia seleccionada, sin guardarlo en el historial). Archivo: \(url.path)")
+                return
+            }
+            if response == .alertFirstButtonReturn, let url = Self.accessibilitySettingsURL {
                 _ = NSWorkspace.shared.open(url)
             }
             // Do not queue a paste waiting for permission; it may land in an unrelated app.

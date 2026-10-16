@@ -43,6 +43,9 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/MemoriaLocal" "$APP/Contents/MacOS/MemoriaLocal"
 cp "$ROOT/packaging/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/LICENSE" "$ROOT/NOTICE" "$ROOT/README.md" "$APP/Contents/Resources/"
+# Stamp provenance before signing; never modify the sealed bundle afterwards.
+COMMIT="$(git rev-parse HEAD)"
+python3 -c 'import pathlib,plistlib,sys; p=pathlib.Path(sys.argv[1]); v=plistlib.loads(p.read_bytes()); v["MemoriaLocalCommit"]=sys.argv[2]; p.write_bytes(plistlib.dumps(v,sort_keys=False))' "$APP/Contents/Info.plist" "$COMMIT"
 plutil -lint "$APP/Contents/Info.plist"
 # Local ad-hoc signing only; not Developer ID, notarization or permission bypass.
 codesign --force --sign - "$APP"
@@ -50,5 +53,11 @@ codesign --verify --deep --strict --verbose=2 "$APP"
 # Corresponding source is always delivered alongside the binary, with exact file hashes.
 python3 "$ROOT/scripts/source_archive.py" "$OUT/MemoriaLocal-source.zip"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/MemoriaLocal-arm64.zip"
+# Check the exact transport ZIP, not only the bundle before packaging.
+python3 "$ROOT/scripts/inspect_macos_signature.py" "$OUT/MemoriaLocal-arm64.zip" "$OUT/signature-inspection.json"
+mkdir "$OUT/roundtrip"
+ditto -x -k "$OUT/MemoriaLocal-arm64.zip" "$OUT/roundtrip"
+test -x "$OUT/roundtrip/Memoria Local.app/Contents/MacOS/MemoriaLocal"
+codesign --verify --deep --strict --verbose=2 "$OUT/roundtrip/Memoria Local.app"
 python3 -c 'import hashlib,json,pathlib,sys; p=pathlib.Path(sys.argv[1]); files=[p/"MemoriaLocal-source.zip",p/"MemoriaLocal-arm64.zip"]; (p/"SHA256SUMS.json").write_text(json.dumps({f.name:hashlib.sha256(f.read_bytes()).hexdigest() for f in files},indent=2)+"\n")' "$OUT"
 printf '%s\n' 'PASS: compiled/tested, local ad-hoc .app + corresponding source. Not notarized or published. UI/TCC acceptance still required.'

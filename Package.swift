@@ -10,7 +10,8 @@ let package = Package(
         .target(name: "ClipCore", publicHeadersPath: "include", linkerSettings: [.linkedLibrary("sqlite3")]),
         .executableTarget(name: "MemoriaLocal", dependencies: ["ClipCore"],
                           linkerSettings: [.linkedFramework("AppKit"), .linkedFramework("Carbon"),
-                                           .linkedFramework("ApplicationServices"), .linkedFramework("ServiceManagement")]),
+                                           .linkedFramework("ApplicationServices"), .linkedFramework("ServiceManagement"),
+                                           .linkedFramework("Security")]),
         .testTarget(name: "MemoriaLocalTests", dependencies: ["MemoriaLocal", "ClipCore"])
     ]
 )

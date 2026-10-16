@@ -55,5 +55,6 @@ jobs:
             ${{ env.LOG_DIR }}/*.log
             ${{ env.OUTPUT_DIR }}/macos-executor.log
             ${{ env.OUTPUT_DIR }}/result.json
+            ${{ env.OUTPUT_DIR }}/signature-inspection.json
           if-no-files-found: warn
           retention-days: 14
