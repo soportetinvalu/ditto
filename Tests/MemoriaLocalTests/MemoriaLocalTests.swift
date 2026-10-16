@@ -236,6 +236,19 @@ final class MemoriaLocalTests: XCTestCase {
         XCTAssertEqual(TextTransform.camel.apply("HOLA mundo prueba"), "holaMundoPrueba")
         XCTAssertEqual(TextTransform.upper.apply("mañana"), "MAÑANA")
     }
+    func testAccessibilityAlertOnlyForUntrustedProcessAndExplainsUpdateRecovery() throws {
+        _ = NSApplication.shared
+        XCTAssertNil(PasteCoordinator.accessibilityAlert(isTrusted: true))
+        let alert = try XCTUnwrap(PasteCoordinator.accessibilityAlert(isTrusted: false))
+        XCTAssertEqual(alert.messageText, "Permitir el pegado automático")
+        XCTAssertEqual(alert.buttons.map(\.title), ["Abrir Accesibilidad", "Solo copiar"])
+        XCTAssertTrue(alert.informativeText.contains("Al actualizar la app, macOS olvida el permiso anterior"))
+        XCTAssertTrue(alert.informativeText.contains("quita la entrada «Memoria Local» con −"))
+        XCTAssertTrue(alert.informativeText.contains("vuelve a añadirla y concederlo"))
+        XCTAssertTrue(alert.informativeText.contains("pegar manualmente"))
+        XCTAssertEqual(PasteCoordinator.accessibilitySettingsURL?.absoluteString,
+                       "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+    }
     func testCopyFallbackUsesNamedPasteboardWithoutAccessibilityOrEvents() throws {
         let board = NSPasteboard(name: NSPasteboard.Name("MemoriaLocalFallback." + UUID().uuidString))
         defer { board.releaseGlobally() }

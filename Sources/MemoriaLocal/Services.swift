@@ -146,20 +146,25 @@ final class PasteCoordinator {
         let app = NSWorkspace.shared.frontmostApplication
         if app?.processIdentifier != ProcessInfo.processInfo.processIdentifier { destination = app }
     }
+    static let accessibilitySettingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+    static func accessibilityAlert(isTrusted: Bool) -> NSAlert? {
+        guard !isTrusted else { return nil }
+        let alert = NSAlert()
+        alert.messageText = "Permitir el pegado automático"
+        alert.informativeText = "Accesibilidad permite enviar una sola pulsación ⌘V a la aplicación anterior. Al actualizar la app, macOS olvida el permiso anterior: si ya lo habías concedido, quita la entrada «Memoria Local» con − en Accesibilidad y vuelve a añadirla y concederlo. La copia ya está disponible para pegar manualmente."
+        alert.addButton(withTitle: "Abrir Accesibilidad"); alert.addButton(withTitle: "Solo copiar")
+        return alert
+    }
     func paste(_ reps: [Representation], hide: () -> Void) throws {
         let count = try monitor.write(reps)
         guard preferences.defaults.bool(forKey: "autoPaste") else {
             hide(); _ = destination?.activate(options: [.activateIgnoringOtherApps])
             onMessage?("Copiado. Pulsa ⌘V en la aplicación de destino."); return
         }
-        guard AXIsProcessTrusted() else {
-            // Only explicit user action requests the OS prompt, never startup or polling.
-            let alert = NSAlert()
-            alert.messageText = "Permitir el pegado automático"
-            alert.informativeText = "Accesibilidad permite enviar una sola pulsación ⌘V a la aplicación anterior. La copia ya está disponible para pegar manualmente. Puedes revocar este acceso en Ajustes del Sistema."
-            alert.addButton(withTitle: "Solicitar permiso"); alert.addButton(withTitle: "Solo copiar")
-            if alert.runModal() == .alertFirstButtonReturn {
-                _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+        if let alert = Self.accessibilityAlert(isTrusted: AXIsProcessTrusted()) {
+            // Only explicit user action opens Settings, never startup or polling.
+            if alert.runModal() == .alertFirstButtonReturn, let url = Self.accessibilitySettingsURL {
+                _ = NSWorkspace.shared.open(url)
             }
             // Do not queue a paste waiting for permission; it may land in an unrelated app.
             onMessage?("Copiado. El permiso no provoca un pegado pendiente: usa ⌘V o vuelve a seleccionar.")
