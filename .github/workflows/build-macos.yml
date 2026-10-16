@@ -17,6 +17,7 @@ jobs:
           set -euo pipefail
           echo "OUTPUT_DIR=$RUNNER_TEMP/memorialocal-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
           echo "LOG_DIR=$RUNNER_TEMP/memorialocal-logs-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+          echo "MACOS_CODESIGN_TEMP_DIR=$RUNNER_TEMP/nexclip-sign-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
       - name: Checkout source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2, verified via official GitHub tag API
         with:
@@ -31,12 +32,30 @@ jobs:
             xcode-select -p
             swift --version
           } 2>&1 | tee "$LOG_DIR/toolchain.log"
-      - name: Test, build and package (ad hoc signing)
+      - name: Check signing lifecycle (isolated mocks)
+        run: python3 scripts/test_sign_macos.py
+      - name: Test, build and package (stable signing, ad hoc without secrets)
         shell: bash
+        env:
+          MACOS_CODESIGN_P12_BASE64: ${{ secrets.MACOS_CODESIGN_P12_BASE64 }}
+          MACOS_CODESIGN_P12_PASSWORD: ${{ secrets.MACOS_CODESIGN_P12_PASSWORD }}
         run: |
           set -euo pipefail
           python3 scripts/macos_executor.py --output "$OUTPUT_DIR" 2>&1 | tee "$LOG_DIR/package.log"
-      - name: Upload app, corresponding source and checksums
+      - name: Remove temporary signing keychain (including failures)
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${MACOS_CODESIGN_TEMP_DIR:-}" && -d "$MACOS_CODESIGN_TEMP_DIR" ]]; then
+            if [[ -f "$MACOS_CODESIGN_TEMP_DIR/signing.keychain-db" ]]; then
+              security delete-keychain "$MACOS_CODESIGN_TEMP_DIR/signing.keychain-db"
+            fi
+            rm -rf "$MACOS_CODESIGN_TEMP_DIR"
+          fi
+          test ! -e "$MACOS_CODESIGN_TEMP_DIR"
+          echo 'PASS: no temporary signing identity remains.'
+      - name: Upload app, corresponding source, public certificate and checksums
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2, verified via official GitHub tag API
         with:
           name: MemoriaLocal-arm64-${{ github.sha }}
@@ -44,6 +63,7 @@ jobs:
             ${{ env.OUTPUT_DIR }}/MemoriaLocal-arm64.zip
             ${{ env.OUTPUT_DIR }}/MemoriaLocal-source.zip
             ${{ env.OUTPUT_DIR }}/SHA256SUMS.json
+            ${{ env.OUTPUT_DIR }}/NexClip-Developer.cer
           if-no-files-found: error
           retention-days: 14
       - name: Upload build logs (including failures)
