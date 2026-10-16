@@ -29,6 +29,7 @@ int cm_retire(sqlite3 *db, double older_than, int max_count, int64_t max_bytes, 
 int cm_backup(sqlite3 *db, const char *path);
 /* Validate a live connection without reopening a WAL file read-only. Does not close db. */
 int cm_validate(sqlite3 *db);
+/* Read-only validation accepts schemas 1 and 2; cm_open migrates v1 transactionally to v2. */
 int cm_validate_file(const char *path);
 int cm_capture_allowed(int paused, const char *source, const char *excluded_newlines,
                        const char *allowed_newlines, int transient);

@@ -275,6 +275,198 @@ final class MemoriaLocalTests: XCTestCase {
         controller.panel.contentView?.layoutSubtreeIfNeeded()
         XCTAssertGreaterThan(controller.table.tableColumns[1].width, 100)
     }
+    func testUsagePersistsWithoutReorderingAndSurvivesRecapture() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("usage.sqlite").path
+        var id = ""
+        do {
+            let store = try ClipStore(path: path)
+            id = try store.capture([text("older")], title: "Older", text: "older", source: "test", now: 10).id
+            try store.capture([text("newer")], title: "Newer", text: "newer", source: "test", now: 20)
+            XCTAssertTrue(try store.clips().allSatisfy { $0.usedAt == nil })
+            try store.markUsed([id], reorder: false, now: 30)
+            XCTAssertEqual(try store.clips().last?.id, id)
+            XCTAssertNil(try store.clips().last?.lastUsed)
+        }
+        let reopened = try ClipStore(path: path)
+        XCTAssertEqual(try reopened.clips().last?.usedAt, 30)
+        XCTAssertEqual(ClipStore.initialSelection(in: try reopened.clips()), 1)
+        let duplicate = try reopened.capture([text("older")], title: "Duplicate", text: "older", source: "test", now: 40)
+        XCTAssertTrue(duplicate.duplicate); XCTAssertEqual(duplicate.id, id)
+        XCTAssertEqual(try reopened.clips().first?.usedAt, 30)
+        try reopened.markUsed([id], reorder: true, now: 50)
+        XCTAssertEqual(try reopened.clips().first?.lastUsed, 50)
+        XCTAssertEqual(try reopened.clips().first?.usedAt, 50)
+    }
+    func testLegacyUsageMigrationAndReadOnlyBackup() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("legacy.sqlite")
+        do {
+            let store = try ClipStore(path: path.path)
+            let id = try store.capture([text("legacy")], title: "Legacy", text: "legacy", source: "test", now: 1).id
+            try store.run("UPDATE clips SET last_used=2 WHERE id=?", [id])
+            try store.run("ALTER TABLE clips DROP COLUMN used_at")
+            try store.run("PRAGMA user_version=1")
+            try store.run("PRAGMA wal_checkpoint(TRUNCATE)")
+        }
+        let before = try Data(contentsOf: path)
+        XCTAssertEqual(cm_validate_file(path.path), SQLITE_OK)
+        XCTAssertEqual(try Data(contentsOf: path), before)
+        let target = try ClipStore(path: ":memory:")
+        XCTAssertEqual(try target.mergeBackup(path), 1)
+        XCTAssertEqual(try Data(contentsOf: path), before)
+        let migrated = try ClipStore(path: path.path)
+        XCTAssertEqual(try migrated.run("PRAGMA user_version").first?["user_version"] as? Int, 2)
+        XCTAssertEqual(try migrated.clips().first?.usedAt, 2)
+        XCTAssertEqual(try migrated.representations(migrated.clips()[0].id), [text("legacy")])
+    }
+    func testInitialSelectionPolicyNewCaptureRecaptureAndRemovedItem() throws {
+        let store = try ClipStore(path: ":memory:")
+        XCTAssertNil(ClipStore.initialSelection(in: []))
+        let older = try store.capture([text("a")], title: "A", text: "a", source: "test", now: 10).id
+        let newer = try store.capture([text("b")], title: "B", text: "b", source: "test", now: 20).id
+        func selected() throws -> String? {
+            let clips = try store.clips()
+            return ClipStore.initialSelection(in: clips).map { clips[$0].id }
+        }
+        XCTAssertEqual(try selected(), newer) // No usage yet, but there are clips.
+        try store.markUsed([older], reorder: false, now: 30)
+        XCTAssertEqual(try selected(), older) // Not the first displayed row.
+        var sticky = try store.clips()[0]; sticky.sticky = 1; try store.metadata(sticky)
+        XCTAssertEqual(try selected(), older) // Pinning does not change usage.
+        try store.capture([text("b")], title: "B", text: "b", source: "test", now: 31)
+        XCTAssertEqual(try selected(), newer) // Deduplication is a new capture.
+        try store.markUsed([older], reorder: false, now: 31)
+        XCTAssertEqual(try selected(), older) // Equal timestamps are not newer.
+        try store.trash([older]); XCTAssertEqual(try selected(), newer)
+        try store.trash([newer]); XCTAssertNil(try selected())
+    }
+    private func withHistory(_ body: (HistoryController, NSPasteboard) throws -> Void) throws {
+        _ = NSApplication.shared
+        let board = NSPasteboard(name: NSPasteboard.Name("MemoriaLocalFocus." + UUID().uuidString))
+        defer { board.releaseGlobally() }
+        let suite = "MemoriaLocalFocus." + UUID().uuidString
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let preferences = Preferences(defaults); defaults.set(false, forKey: "reorder")
+        let store = try ClipStore(path: ":memory:")
+        let monitor = ClipboardMonitor(store: store, preferences: preferences, pasteboard: board)
+        let controller = HistoryController(store: store, preferences: preferences, monitor: monitor,
+                                           paste: PasteCoordinator(monitor: monitor, preferences: preferences))
+        defer { controller.panel.close() }
+        try body(controller, board)
+    }
+    private func key(_ controller: HistoryController, _ code: UInt16, _ characters: String,
+                     flags: NSEvent.ModifierFlags = []) throws -> NSEvent {
+        try XCTUnwrap(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+                                      windowNumber: controller.panel.windowNumber, context: nil,
+                                      characters: characters, charactersIgnoringModifiers: characters,
+                                      isARepeat: false, keyCode: code))
+    }
+    func testPanelOpeningFocusTypeToSearchAndTab() throws {
+        try withHistory { controller, _ in
+            controller.open()
+            XCTAssertTrue(controller.panel.firstResponder === controller.search.currentEditor())
+            let store = controller.store
+            let older = try store.capture([text("visible")], title: "Visible", text: "visible", source: "test", now: 10).id
+            let newer = try store.capture([text("other")], title: "Other", text: "other", source: "test", now: 20).id
+            try store.markUsed([older], reorder: false, now: 30)
+            controller.search.stringValue = "stale"; controller.favoriteButton.state = .on
+            controller.open()
+            XCTAssertTrue(controller.panel.firstResponder === controller.table)
+            XCTAssertEqual(controller.selection.map(\.id), [older])
+            XCTAssertEqual(controller.clips.count, 2)
+            XCTAssertTrue(controller.table.onKey?(try key(controller, 9, "v")) == true)
+            XCTAssertTrue(controller.panel.firstResponder === controller.search.currentEditor())
+            XCTAssertEqual(controller.search.stringValue, "v")
+            XCTAssertEqual(controller.clips.map(\.id), [older])
+            controller.open()
+            XCTAssertTrue(controller.table.onKey?(try key(controller, 48, "\t")) == true)
+            XCTAssertTrue(controller.panel.firstResponder === controller.search.currentEditor())
+            try store.capture([text("other")], title: "Other", text: "other", source: "test", now: 40)
+            controller.open()
+            XCTAssertEqual(controller.selection.map(\.id), [newer])
+            XCTAssertTrue(controller.panel.firstResponder === controller.table)
+            XCTAssertFalse(controller.table.onKey?(try key(controller, 125, "\u{F701}")) ?? true)
+            XCTAssertNil(try store.clips().first { $0.id == newer }?.usedAt) // Focus/arrows are not usage.
+            XCTAssertTrue(controller.table.onKey?(try key(controller, 53, "\u{1B}")) == true)
+            XCTAssertFalse(controller.panel.isVisible)
+        }
+    }
+    func testClickMarksAndRefreshesRowWithoutPastingOrReordering() throws {
+        try withHistory { controller, board in
+            let store = controller.store
+            let older = try store.capture([text("a")], title: "A", text: "a", source: "test", now: 10).id
+            try store.capture([text("b")], title: "B", text: "b", source: "test", now: 20)
+            controller.open(); controller.panel.contentView?.layoutSubtreeIfNeeded()
+            let view = try XCTUnwrap(controller.table.rowView(atRow: 1, makeIfNecessary: true) as? UsedHistoryRow)
+            XCTAssertFalse(view.used)
+            let count = board.changeCount
+            controller.useClickedRow(1)
+            XCTAssertTrue(view.used); XCTAssertTrue(view.needsDisplay)
+            XCTAssertEqual(board.changeCount, count)
+            XCTAssertEqual(controller.clips[1].id, older)
+            XCTAssertNotNil(try store.clips().first { $0.id == older }?.usedAt)
+            XCTAssertNil(try store.clips().first?.usedAt)
+            controller.useClickedRow(-1) // Empty area is not usage.
+        }
+    }
+    func testUsedStripeDrawsBlueOnlyAtLeftEdge() throws {
+        _ = NSApplication.shared
+        let row = UsedHistoryRow(frame: NSRect(x: 0, y: 0, width: 120, height: 49))
+        let blue = try XCTUnwrap(NSColor.systemBlue.usingColorSpace(.deviceRGB))
+        for used in [false, true] {
+            row.used = used
+            let bitmap = try XCTUnwrap(NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: 120, pixelsHigh: 49,
+                                                       bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                                                       isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0))
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = try XCTUnwrap(NSGraphicsContext(bitmapImageRep: bitmap))
+            row.draw(row.bounds)
+            NSGraphicsContext.restoreGraphicsState()
+            for y in [5, 24, 43] {
+                let pixel = try XCTUnwrap(bitmap.colorAt(x: 1, y: y)?.usingColorSpace(.deviceRGB))
+                let isBlue = abs(pixel.redComponent - blue.redComponent) < 0.02 &&
+                    abs(pixel.greenComponent - blue.greenComponent) < 0.02 && abs(pixel.blueComponent - blue.blueComponent) < 0.02
+                XCTAssertEqual(isBlue, used)
+            }
+            // Outside the 4 pt stripe, this unselected row must not paint system blue.
+            let outside = try XCTUnwrap(bitmap.colorAt(x: 6, y: 24)?.usingColorSpace(.deviceRGB))
+            XCTAssertTrue(outside.alphaComponent < 0.1 || abs(outside.redComponent - blue.redComponent) > 0.02 ||
+                          abs(outside.greenComponent - blue.greenComponent) > 0.02 || abs(outside.blueComponent - blue.blueComponent) > 0.02)
+        }
+    }
+    func testAllCopyPasteEntryPointsMarkUsed() throws {
+        try withHistory { controller, board in
+            let store = controller.store
+            let id = try store.capture([text("hello")], title: "Hello", text: "hello", source: "test").id
+            _ = try store.buffer(1, clip: id)
+            for command in ["copy", "paste", "plain", "transform:MAYÚSCULAS", "bufferPaste:1", "enter", "shiftEnter", "option1", "doubleClick", "commandC"] {
+                try store.run("UPDATE clips SET used_at=NULL,last_used=NULL")
+                controller.open()
+                switch command {
+                case "enter", "shiftEnter":
+                    controller.table.keyDown(with: try key(controller, 36, "\r", flags: command == "shiftEnter" ? .shift : []))
+                case "option1": controller.table.keyDown(with: try key(controller, 18, "1", flags: .option))
+                case "doubleClick":
+                    XCTAssertTrue(controller.table.sendAction(try XCTUnwrap(controller.table.doubleAction), to: controller.table.target))
+                case "commandC":
+                    XCTAssertTrue(controller.table.performKeyEquivalent(with: try key(controller, 8, "c", flags: .command)))
+                default: controller.commandAction(command)
+                }
+                XCTAssertNotNil(try store.clips().first?.usedAt, command)
+                XCTAssertNil(try store.clips().first?.lastUsed, command) // Reorder is disabled.
+                XCTAssertEqual(board.string(forType: .string), command.hasPrefix("transform:") ? "HELLO" : "hello", command)
+            }
+            try store.run("UPDATE clips SET used_at=NULL")
+            controller.reload(); controller.table.deselectAll(nil); controller.copySelection()
+            XCTAssertNil(try store.clips().first?.usedAt) // Failed/empty copy must not mark.
+        }
+    }
     func testOversizeAndDuplicateRepresentationRejectBeforeWrite() throws {
         let store = try ClipStore(path: ":memory:")
         XCTAssertThrowsError(try store.capture([text("a"), text("b")], title: "bad", text: "bad", source: "test"))

@@ -44,6 +44,16 @@ macOS y otras apps pueden reservar combinaciones o interceptarlas antes de que l
 
 La búsqueda literal usa SQL parametrizado con `instr`: `%`, `_` y comillas no actúan como comodines ni SQL. `lower()` de SQLite no hace folding Unicode/acento completo. Regex es un **subconjunto restringido** de ICU: hasta 128 caracteres, sin grupos, alternativas, llaves, escapes ni más de un repetidor; se aplica a título/alias y primeros 8192 caracteres. No es el dialecto completo de Ditto.
 
+### Foco inicial y marca de uso
+
+Al abrir se muestran todas las copias activas (se limpian búsqueda y filtros anteriores). Sin capturas posteriores al último uso, se selecciona y enfoca ese elemento; con capturas nuevas, la copia con `last_seen` más reciente. Sin uso previo se elige la más reciente disponible; con historial vacío se enfoca el buscador. Fijar arriba/abajo sigue respetándose: si el objetivo está fuera de vista, se desplaza hasta él, sin deshacer los fijados. Si el último usado se eliminó, se elige entre las copias activas restantes.
+
+Escribir desde la lista lleva el evento original al buscador y empieza un filtro nuevo; admite Shift/Opción y caracteres Unicode. `Tab`, clic y `⌘F` también enfocan búsqueda. Se conservan los atajos: **Espacio sigue abriendo la vista previa**, `⌥1…9` pega, flechas navegan, Esc oculta y Enter pega. Espacio se escribe normalmente una vez enfocado el buscador.
+
+Cada fila ya usada muestra una franja **`NSColor.systemBlue`, 4 pt, radio 2 pt, altura completa** en el borde izquierdo, incluso seleccionada. Un clic simple marca sin pegar ni reordenar; doble clic, Enter/Shift-Enter, `⌥1…9`, copiar (`⌘C` o menú), pegar original/plano/transformado y pegar buffer registran uso después de escribir correctamente al portapapeles. Seleccionar por foco/flechas, previsualizar o abrir un menú no marca. La fila se invalida en el momento, sin reiniciar.
+
+`clips.used_at REAL NULL` persiste el uso independientemente de «reordenar al usar» (`last_used` mantiene su función anterior). El esquema pasa de v1 a v2 con transacción, comprobación de columna antes del `ALTER TABLE` y copia de los `last_used` conocidos; usos antiguos que nunca se guardaron no se pueden reconstruir. La re-captura deduplicada **conserva la marca** y cuenta como captura nueva para el foco. Un mismo pegado múltiple marca todos sus elementos; si comparten timestamp, el desempate es el orden estable de presentación. Los respaldos v1 siguen validándose sin modificar el original; se migra únicamente la copia de trabajo. La fusión/JSON siguen siendo intercambio de contenido, no restauración exacta de uso.
+
 ### Pegar con seguridad
 
 El panel recuerda la app al frente **antes** de activarse. Primero repone los datos originales en el pasteboard. Por defecto solo copia y devuelve foco: `⌘V` manual.

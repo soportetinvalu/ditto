@@ -57,6 +57,12 @@ Rutas de logs relativas a `app-macos/.verification/`.
 
 Estas pruebas **no** ejecutan SHA-256 Swift, consultas construidas por Swift, `NSPasteboard`, AppKit, Carbon, TCC ni `CGEvent`. Las comprobaciones estáticas de presencia/ausencia de APIs no acreditan comportamiento de privacidad o seguridad en ejecución.
 
+## Ampliación: foco inicial y franja de uso
+
+La suite añade pruebas de persistencia `used_at` sin reordenación y tras re-captura/reapertura, migración legacy sin modificar el backup original, política pura de selección, foco real de NSPanel/type-to-search/Tab/Esc, uso por clic y refresco inmediato, dibujo bitmap azul de 4 pt y entradas copiar/pegar/transformación/buffer/Enter/Shift-Enter/⌥1/doble clic/⌘C. Solo usan fixtures sintéticos y portapapeles nombrados. Compilar y ejecutar esta suite requiere macOS; el VPS no acredita estos resultados por sí mismo.
+
+Prueba portable ampliada: **186 aserciones** normales y con ASan/UBSan, SQLite real 3.45.1. Incluye migración v1→v2, columna ya existente, backfill de `last_used`, NULL nunca usado, conservación al deduplicar, validación readonly de v1, rollback de ALTER/versionado ante fallo inyectado y rechazo de tipos inválidos en `used_at`. RC0 del script; el intento con SDK local sigue fallando por `sqlite3.h` ausente y el fallback ABI real es RC0. La nueva contraprueba cambia el backfill a cero y exige RC1; las contrapruebas anteriores de retención y pausa siguen exigiendo RC1. No se intentó compilar Swift/AppKit en Linux.
+
 ## Ampliación: atajo personalizado
 
 El registro histórico que sigue corresponde a la entrega inicial, anterior a los builds de GitHub Actions. La suite actual añade cinco XCTest puros del atajo (16 métodos en total): NSEvent→Carbon, modificador obligatorio, descripción física, preferencias legacy/round-trip y reemplazo con fallo inyectado que conserva registro/preferencias anteriores. No crean ventanas ni monitores ni requieren permisos de teclado. La prueba del fallo usa el mismo coordinador de registro que producción, con adquisición/liberación inyectadas; no demuestra por sí sola una colisión real de Carbon. Grabación/foco, teclas reservadas y funcionamiento desde otra app se verifican con la fila de aceptación de `ACEPTACION-MACOS.md`.

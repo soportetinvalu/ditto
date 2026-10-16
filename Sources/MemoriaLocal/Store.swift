@@ -17,6 +17,7 @@ struct Clip: Identifiable {
     var created: Double
     var lastSeen: Double
     var lastUsed: Double?
+    var usedAt: Double? = nil
     var copies: Int
     var favorite: Bool
     var protected: Bool
@@ -165,6 +166,7 @@ final class ClipStore {
                     text: row["plain_text"] as! String, source: row["source"] as! String,
                     created: number("created"), lastSeen: number("last_seen"),
                     lastUsed: row["last_used"] == nil ? nil : number("last_used"),
+                    usedAt: row["used_at"] == nil ? nil : number("used_at"),
                     copies: row["copies"] as? Int ?? 1, favorite: (row["favorite"] as? Int) == 1,
                     protected: (row["protected"] as? Int) == 1, sticky: row["sticky"] as? Int ?? 0,
                     group: row["group_id"] as? String, alias: row["alias"] as? String,
@@ -214,8 +216,21 @@ final class ClipStore {
                 [clip.title, clip.favorite ? 1 : 0, clip.protected ? 1 : 0, clip.sticky, clip.group,
                  clip.alias?.isEmpty == false ? clip.alias : nil, clip.id])
     }
-    func markUsed(_ ids: [String], reorder: Bool) throws {
-        if reorder { for id in ids { try run("UPDATE clips SET last_used=? WHERE id=?", [Date().timeIntervalSince1970, id]) } }
+    func markUsed(_ ids: [String], reorder: Bool, now: Double = Date().timeIntervalSince1970) throws {
+        try transaction {
+            for id in ids {
+                try run("UPDATE clips SET used_at=?,last_used=CASE WHEN ?=1 THEN ? ELSE last_used END WHERE id=? AND deleted_at IS NULL",
+                        [now, reorder ? 1 : 0, now, id])
+            }
+        }
+    }
+    /// Pure opening policy, independent of sticky/reorder presentation and AppKit focus.
+    static func initialSelection(in clips: [Clip]) -> Int? {
+        guard let newest = clips.indices.max(by: { clips[$0].lastSeen < clips[$1].lastSeen }) else { return nil }
+        let used = clips.indices.filter { clips[$0].usedAt != nil }
+            .max(by: { clips[$0].usedAt! < clips[$1].usedAt! })
+        guard let used else { return newest }
+        return clips[newest].lastSeen > clips[used].usedAt! ? newest : used
     }
     func trash(_ ids: [String]) throws {
         try transaction { for id in ids { try run("UPDATE clips SET deleted_at=? WHERE id=?", [Date().timeIntervalSince1970, id]) } }

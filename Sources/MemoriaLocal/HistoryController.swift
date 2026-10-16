@@ -8,6 +8,20 @@ final class HistoryTable: NSTableView {
         if onKey?(event) == true { return }
         super.keyDown(with: event)
     }
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if window?.firstResponder === self, event.modifierFlags.contains(.command), onKey?(event) == true { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+}
+final class UsedHistoryRow: NSTableRowView {
+    var used = false { didSet { needsDisplay = true } }
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        guard used else { return }
+        NSColor.systemBlue.setFill()
+        NSBezierPath(roundedRect: NSRect(x: bounds.minX, y: bounds.minY, width: 4, height: bounds.height),
+                     xRadius: 2, yRadius: 2).fill()
+    }
 }
 final class HistoryPanel: NSPanel {
     override var canBecomeKey: Bool { true }
@@ -62,7 +76,7 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
         table.delegate = self; table.dataSource = self; table.rowHeight = 49
         table.allowsMultipleSelection = true; table.usesAlternatingRowBackgroundColors = true
         table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
-        table.target = self; table.doubleAction = #selector(pasteSelected)
+        table.target = self; table.action = #selector(clickedRow); table.doubleAction = #selector(pasteSelected)
         table.setAccessibilityLabel("Historial de copias")
         table.onKey = { [weak self] event in self?.handleKey(event) ?? false }
         let context = NSMenu(); context.delegate = self; table.menu = context
@@ -87,11 +101,20 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
             bottom.widthAnchor.constraint(equalTo: stack.widthAnchor), information.widthAnchor.constraint(equalTo: stack.widthAnchor),
             scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 120), groupPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 110)
         ])
+        table.nextKeyView = search; search.nextKeyView = table
+        panel.initialFirstResponder = search
     }
     func open() {
-        paste.rememberDestination(); reloadGroups(); reload()
+        paste.rememberDestination(); reloadGroups()
+        // A stale search/group/trash filter must not hide the opening target.
+        search.stringValue = ""; groupPopup.selectItem(at: 0)
+        favoriteButton.state = .off; trashButton.state = .off; regexButton.state = .off
+        reload()
         NSApp.activate(ignoringOtherApps: true); panel.makeKeyAndOrderFront(nil)
-        panel.makeFirstResponder(search)
+        if let row = ClipStore.initialSelection(in: clips) {
+            table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            table.scrollRowToVisible(row); panel.makeFirstResponder(table)
+        } else { panel.makeFirstResponder(search) }
     }
     func hide() { panel.orderOut(nil) }
     func message(_ value: String) { information.stringValue = value; information.toolTip = value }
@@ -129,6 +152,12 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
         }
     }
     func numberOfRows(in tableView: NSTableView) -> Int { clips.count }
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        let view = UsedHistoryRow(); view.used = clips[row].usedAt != nil; return view
+    }
+    func tableView(_ tableView: NSTableView, didAdd rowView: NSTableRowView, forRow row: Int) {
+        (rowView as? UsedHistoryRow)?.used = clips[row].usedAt != nil
+    }
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let clip = clips[row]
         if tableColumn?.identifier.rawValue == "number" {
@@ -157,6 +186,7 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
         case 36, 76: pasteSelection(plain: event.modifierFlags.contains(.shift)); return true
         case 53: hide(); return true
         case 49: preview(); return true
+        case 48: panel.makeFirstResponder(search); return true
         case 51, 117: commandAction("trash"); return true
         default: break
         }
@@ -172,7 +202,34 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
            let number = Int(character), number >= 1, number <= min(9, clips.count) {
             table.selectRowIndexes(IndexSet(integer: number - 1), byExtendingSelection: false); pasteSelection(plain: false); return true
         }
+        if !command && !event.modifierFlags.contains(.control), let characters = event.characters,
+           !characters.isEmpty, characters.unicodeScalars.allSatisfy({
+               !CharacterSet.controlCharacters.contains($0) && !(0xF700...0xF8FF).contains($0.value)
+           }) {
+            // Let the field editor handle the original event (layout/Option/Unicode), not a key-code map.
+            search.stringValue = ""; reload(); panel.makeFirstResponder(search)
+            search.currentEditor()?.keyDown(with: event)
+            return true
+        }
         return false
+    }
+    @objc private func clickedRow() {
+        guard let event = NSApp.currentEvent, event.type == .leftMouseUp || event.type == .leftMouseDown else { return }
+        useClickedRow(table.clickedRow)
+    }
+    func useClickedRow(_ row: Int) {
+        guard clips.indices.contains(row), !clips[row].deleted else { return }
+        // A single click records intent, without pasting or moving a double-click target.
+        perform { try recordUse([clips[row].id], reorder: false) }
+    }
+    private func recordUse(_ ids: [String], reorder: Bool) throws {
+        let now = Date().timeIntervalSince1970
+        try store.markUsed(ids, reorder: reorder, now: now)
+        for row in clips.indices where ids.contains(clips[row].id) && !clips[row].deleted {
+            clips[row].usedAt = now
+            if reorder { clips[row].lastUsed = now }
+            (table.rowView(atRow: row, makeIfNecessary: false) as? UsedHistoryRow)?.used = true
+        }
     }
     @objc private func filterChanged() { reload() }
     @objc private func settings() { onSettings?() }
@@ -193,13 +250,23 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
             let ids = selection.map(\.id)
             let reps = try assembled(plain: plain, transform: transform)
             try paste.paste(reps, hide: hide)
-            try store.markUsed(ids, reorder: preferences.defaults.bool(forKey: "reorder"))
+            try recordUse(ids, reorder: preferences.defaults.bool(forKey: "reorder"))
         }
     }
     func copySelection() {
-        perform { try monitor.write(assembled(plain: false)); message("Copiado al portapapeles, sin enviar teclas.") }
+        perform {
+            let ids = selection.map(\.id)
+            try monitor.write(assembled(plain: false))
+            try recordUse(ids, reorder: preferences.defaults.bool(forKey: "reorder"))
+            message("Copiado al portapapeles, sin enviar teclas.")
+        }
     }
-    func menuNeedsUpdate(_ menu: NSMenu) { fillMenu(menu) }
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        if menu === table.menu, clips.indices.contains(table.clickedRow), !table.isRowSelected(table.clickedRow) {
+            table.selectRowIndexes(IndexSet(integer: table.clickedRow), byExtendingSelection: false)
+        }
+        fillMenu(menu)
+    }
     private func menuItem(_ title: String, _ command: String) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: #selector(menuCommand(_:)), keyEquivalent: "")
         item.target = self; item.representedObject = command; return item
@@ -257,6 +324,7 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
             } else if command.hasPrefix("bufferPaste:"), let slot = Int(command.dropFirst(12)) {
                 guard let id = try store.buffer(slot) else { throw LocalError("Buffer vacío o copia en papelera.") }
                 try paste.paste(store.representations(id), hide: hide)
+                try recordUse([id], reorder: preferences.defaults.bool(forKey: "reorder"))
             } else {
                 switch command {
                 case "paste": pasteSelection(); return

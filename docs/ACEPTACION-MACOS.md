@@ -8,6 +8,17 @@ Objetivo registrado: Mac M4/arm64, macOS Tahoe 26.5.2. **No se accedió a ese eq
 
 El flujo registra entorno, versión Swift, SDK, resultados XCTest, compilación release arm64, `--self-check`, plutil/codesign, fuente correspondiente y hashes. Exige salida nueva y preserva logs de fallos. No abre la app ni lee `.general`; XCTest crea pasteboards nombrados de prueba. Un resultado 0 acredita esas etapas, no la aceptación visual/pegado.
 
+## Aceptación de foco inicial y franja de uso
+
+1. En un historial sintético con A/B/C, desactivar «reordenar al usar», hacer clic simple en A: aparece su franja azul inmediatamente, sin cambiar el portapapeles ni mover la fila. Cerrar y abrir panel y luego terminar/reabrir app sin nuevas copias: A debe estar seleccionada, con foco de lista y Enter disponible.
+2. Capturar D entre aperturas: D obtiene selección/foco. Re-capturar A: mantiene su franja y pasa a ser el objetivo por captura nueva. Repetir con reordenación activada, filtros/búsqueda previos y un elemento fijado; abrir limpia filtros, conserva fijados y desplaza hasta el objetivo.
+3. Historial vacío → buscador; historial sin usos pero con filas → captura más reciente. Eliminar el último usado no debe dejar un índice inválido.
+4. Desde lista, escribir `v`, `Ñ`, un símbolo con Opción y un carácter Unicode: buscador recibe el primer carácter y filtra. Tab/clic/⌘F enfocan; flechas y Esc no marcan, Enter/Shift-Enter y ⌥1…9 siguen pegando. Espacio mantiene vista previa; desde el buscador sí escribe espacio. Verificar composición/teclas muertas con la distribución real (no cubierta por eventos sintéticos simples).
+5. Repetir uso por doble clic, Enter, Shift-Enter, ⌥1, ⌘C, menú contextual copiar/pegar/plano/transformación y buffer (incluido uno fuera del filtro). Cada elemento usado muestra franja persistente; abrir menú o vista previa no marca. Multiselección marca todas las copias efectivamente copiadas/pegadas; errores no deben marcar.
+6. En claro/oscuro, con fila seleccionada y sin seleccionar, verificar azul `systemBlue`, ancho 4 pt y bordes de radio 2 pt a toda la altura. Desplazar fuera/dentro de vista para comprobar reutilización de filas sin marcas espurias.
+
+XCTest usa SQLite real y pasteboards nombrados: cubre política pura, migración/backup legacy, persistencia con reordenación desactivada, foco de NSPanel, primer carácter/Tab, despacho de acciones, invalidación de fila y dibujo bitmap de la franja. No sustituye la aceptación con teclado físico, Retina, TCC o aplicación destino.
+
 ## Fixtures y aislamiento
 
 - Sesión macOS de pruebas sin datos personales; no usar portapapeles/historial reales de la persona usuaria.

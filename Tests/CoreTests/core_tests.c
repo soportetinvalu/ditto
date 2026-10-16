@@ -14,6 +14,40 @@ static int integer(sqlite3 *db,const char *sql) {
 }
 static void sql(sqlite3 *db,const char *s) { CHECK(sqlite3_exec(db,s,NULL,NULL,NULL)==SQLITE_OK); }
 static const char *ids[]={"00000000-0000-0000-0000-000000000001","00000000-0000-0000-0000-000000000002","00000000-0000-0000-0000-000000000003","00000000-0000-0000-0000-000000000004","00000000-0000-0000-0000-000000000005"};
+static void migration_tests(const char *directory) {
+    char path[2048],out[37];
+    snprintf(path,sizeof path,"%s/legacy.sqlite",directory);
+    sqlite3 *db=NULL;
+    CHECK(cm_open(path,&db)==SQLITE_OK);
+    CMRepresentation rep={0,"public.utf8-plain-text","legacy",6};
+    CHECK(cm_capture(db,ids[0],"legacy","Legacy","legacy","test",100,&rep,1,out)==0);
+    CHECK(cm_capture(db,ids[1],"unused","Unused","unused","test",110,&rep,1,out)==0);
+    sql(db,"UPDATE clips SET last_used=120 WHERE fingerprint='legacy';ALTER TABLE clips DROP COLUMN used_at;PRAGMA user_version=1");
+    CHECK(cm_validate(db)==SQLITE_OK);sqlite3_close(db);db=NULL;
+    CHECK(cm_validate_file(path)==SQLITE_OK); // Read-only legacy backup validation.
+    CHECK(cm_open(path,&db)==SQLITE_OK);
+    CHECK(integer(db,"PRAGMA user_version")==2);
+    CHECK(integer(db,"SELECT used_at FROM clips WHERE fingerprint='legacy'")==120);
+    CHECK(integer(db,"SELECT used_at IS NULL FROM clips WHERE fingerprint='unused'")==1);
+    CHECK(integer(db,"SELECT length(payload) FROM representations LIMIT 1")==6);
+    CHECK(cm_capture(db,ids[2],"legacy","Duplicate","legacy","test",130,&rep,1,out)==1);
+    CHECK(integer(db,"SELECT used_at FROM clips WHERE fingerprint='legacy'")==120);
+    CHECK(integer(db,"SELECT last_seen FROM clips WHERE fingerprint='legacy'")==130);
+    sql(db,"UPDATE clips SET used_at=125 WHERE fingerprint='legacy';PRAGMA user_version=1");
+    sqlite3_close(db);db=NULL;CHECK(cm_open(path,&db)==SQLITE_OK); // Column already exists.
+    CHECK(integer(db,"SELECT used_at FROM clips WHERE fingerprint='legacy'")==125);
+    CHECK(integer(db,"SELECT count(*) FROM pragma_table_info('clips') WHERE name='used_at'")==1);
+    sql(db,"ALTER TABLE clips DROP COLUMN used_at;PRAGMA user_version=1;CREATE TRIGGER fail_migration BEFORE UPDATE ON clips BEGIN SELECT RAISE(ABORT,'fixture'); END");
+    sqlite3_close(db);db=NULL;
+    CHECK(cm_open(path,&db)==SQLITE_CONSTRAINT);
+    CHECK(integer(db,"PRAGMA user_version")==1);
+    CHECK(integer(db,"SELECT count(*) FROM pragma_table_info('clips') WHERE name='used_at'")==0);
+    CHECK(integer(db,"SELECT count(*) FROM clips")==2);
+    sql(db,"DROP TRIGGER fail_migration");sqlite3_close(db);db=NULL;
+    CHECK(cm_open(path,&db)==SQLITE_OK);CHECK(cm_validate(db)==SQLITE_OK);
+    sql(db,"UPDATE clips SET used_at='invalid'");CHECK(cm_validate(db)!=SQLITE_OK);
+    sqlite3_close(db);
+}
 int main(int argc,char **argv) {
     CHECK(argc==2);
     char path[2048],backup[2048],bad[2048];
@@ -21,7 +55,8 @@ int main(int argc,char **argv) {
     snprintf(backup,sizeof backup,"%s/backup.sqlite",argv[1]);
     snprintf(bad,sizeof bad,"%s/not-a-db",argv[1]);
     sqlite3 *db=NULL;CHECK(cm_open(path,&db)==SQLITE_OK);
-    CHECK(integer(db,"PRAGMA user_version")==1);CHECK(integer(db,"PRAGMA foreign_keys")==1);
+    CHECK(integer(db,"PRAGMA user_version")==2);CHECK(integer(db,"PRAGMA foreign_keys")==1);
+    migration_tests(argv[1]);
     const unsigned char bytes[]={0,255,1,0,77};
     const char *text="Hola ñ 👩🏽‍💻\n100%_";
     CMRepresentation reps[]={{0,"public.utf8-plain-text",text,strlen(text)}, {0,"public.html","<b>hola</b>",11},{1,"public.png",bytes,sizeof bytes}};

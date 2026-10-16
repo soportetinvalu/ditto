@@ -66,7 +66,8 @@ def main():
         # Sensitivity checks compile altered copies in the temporary directory; production is unchanged.
         mutations = {
             "retention-guard": ("WHERE favorite=0 AND protected=0 AND sticky=0 AND", "WHERE favorite=0 AND sticky=0 AND"),
-            "pause-guard": ("if(paused || transient || !source || !*source)", "if((paused && 0) || transient || !source || !*source)")
+            "pause-guard": ("if(paused || transient || !source || !*source)", "if((paused && 0) || transient || !source || !*source)"),
+            "usage-migration": ("UPDATE clips SET used_at=last_used WHERE", "UPDATE clips SET used_at=0 WHERE")
         }
         original = source.read_text()
         for name, (old, new) in mutations.items():

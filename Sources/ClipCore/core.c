@@ -13,7 +13,7 @@ static const char *schema =
 "CREATE TABLE groups(id TEXT PRIMARY KEY,name TEXT NOT NULL,parent_id TEXT REFERENCES groups(id) ON DELETE RESTRICT);"
 "CREATE TABLE clips(id TEXT PRIMARY KEY CHECK(length(id)=36),fingerprint TEXT NOT NULL,"
 "title TEXT NOT NULL,plain_text TEXT NOT NULL,source TEXT NOT NULL,created REAL NOT NULL,"
-"last_seen REAL NOT NULL,last_used REAL,copies INTEGER NOT NULL DEFAULT 1,"
+"last_seen REAL NOT NULL,last_used REAL,used_at REAL,copies INTEGER NOT NULL DEFAULT 1,"
 "favorite INTEGER NOT NULL DEFAULT 0,protected INTEGER NOT NULL DEFAULT 0,"
 "sticky INTEGER NOT NULL DEFAULT 0 CHECK(sticky BETWEEN -1 AND 1),"
 "group_id TEXT REFERENCES groups(id) ON DELETE SET NULL,alias TEXT COLLATE NOCASE,"
@@ -25,10 +25,31 @@ static const char *schema =
 "item_index INTEGER NOT NULL CHECK(item_index>=0),type TEXT NOT NULL,payload BLOB NOT NULL,"
 "PRIMARY KEY(clip_id,item_index,type));"
 "CREATE TABLE buffers(slot INTEGER PRIMARY KEY CHECK(slot BETWEEN 1 AND 3),clip_id TEXT NOT NULL REFERENCES clips(id) ON DELETE CASCADE);"
-"PRAGMA user_version=1;";
+"PRAGMA user_version=2;";
 
 static int exec(sqlite3 *db,const char *sql) { return sqlite3_exec(db,sql,0,0,0); }
 static void text(sqlite3_stmt *s,int n,const char *v) { sqlite3_bind_text(s,n,v?v:"",-1,SQLITE_TRANSIENT); }
+
+static int migrate_usage(sqlite3 *db) {
+    int rc=exec(db,"BEGIN IMMEDIATE");
+    if(rc!=SQLITE_OK) return rc;
+    sqlite3_stmt *s=NULL;
+    int found=0;
+    rc=sqlite3_prepare_v2(db,"PRAGMA table_info(clips)",-1,&s,NULL);
+    if(rc==SQLITE_OK) {
+        while((rc=sqlite3_step(s))==SQLITE_ROW) {
+            if(strcmp((const char *)sqlite3_column_text(s,1),"used_at")==0) found=1;
+        }
+        if(rc==SQLITE_DONE) rc=SQLITE_OK;
+    }
+    sqlite3_finalize(s);
+    if(rc==SQLITE_OK && !found) rc=exec(db,"ALTER TABLE clips ADD COLUMN used_at REAL");
+    /* Preserve known legacy usage, without inventing uses when reorder was disabled. */
+    if(rc==SQLITE_OK) rc=exec(db,"UPDATE clips SET used_at=last_used WHERE used_at IS NULL AND last_used IS NOT NULL;PRAGMA user_version=2;");
+    if(rc==SQLITE_OK) rc=exec(db,"COMMIT");
+    if(rc!=SQLITE_OK) exec(db,"ROLLBACK");
+    return rc;
+}
 
 int cm_open(const char *path,sqlite3 **out) {
     *out = NULL;
@@ -40,7 +61,7 @@ int cm_open(const char *path,sqlite3 **out) {
     if(rc!=SQLITE_OK) return rc;
     int version=sqlite3_step(s)==SQLITE_ROW?sqlite3_column_int(s,0):-1;
     sqlite3_finalize(s);
-    if(version>1 || version<0) return SQLITE_MISMATCH;
+    if(version>2 || version<0) return SQLITE_MISMATCH;
     if(strcmp(path,":memory:")!=0) chmod(path,0600);
     rc=exec(*out,"PRAGMA foreign_keys=ON;PRAGMA journal_mode=WAL;PRAGMA synchronous=FULL;PRAGMA trusted_schema=OFF;");
     if(rc!=SQLITE_OK) return rc;
@@ -48,7 +69,9 @@ int cm_open(const char *path,sqlite3 **out) {
         rc=exec(*out,"BEGIN IMMEDIATE");
         if(rc==SQLITE_OK) rc=exec(*out,schema);
         if(rc==SQLITE_OK) rc=exec(*out,"COMMIT");
-        else exec(*out,"ROLLBACK");
+        if(rc!=SQLITE_OK) exec(*out,"ROLLBACK");
+    } else if(version==1) {
+        rc=migrate_usage(*out);
     }
     return rc;
 }
@@ -161,9 +184,19 @@ int cm_validate(sqlite3 *db) {
     if(rc!=SQLITE_OK) goto done;
     rc=sqlite3_prepare_v2(db,"SELECT (SELECT user_version FROM pragma_user_version), (SELECT count(*) FROM clips), (SELECT count(*) FROM representations), (SELECT count(*) FROM groups), (SELECT count(*) FROM buffers)",-1,&s,NULL);
     if(rc!=SQLITE_OK) goto done;
-    rc=sqlite3_step(s)==SQLITE_ROW && sqlite3_column_int(s,0)==1?SQLITE_OK:SQLITE_MISMATCH;
+    /* Read-only validation also accepts v1 backups; only cm_open migrates a writable copy. */
+    int version=0;
+    rc=sqlite3_step(s);
+    if(rc==SQLITE_ROW) version=sqlite3_column_int(s,0);
+    rc=rc==SQLITE_ROW && (version==1 || version==2)?SQLITE_OK:SQLITE_MISMATCH;
     sqlite3_finalize(s);s=NULL;
     if(rc!=SQLITE_OK) goto done;
+    if(version==2) {
+        rc=sqlite3_prepare_v2(db,"SELECT 1 FROM clips WHERE used_at IS NOT NULL AND typeof(used_at) NOT IN ('real','integer') LIMIT 1",-1,&s,NULL);
+        if(rc==SQLITE_OK) rc=sqlite3_step(s)==SQLITE_DONE?SQLITE_OK:SQLITE_MISMATCH;
+        sqlite3_finalize(s);s=NULL;
+        if(rc!=SQLITE_OK) goto done;
+    }
     rc=sqlite3_prepare_v2(db,"PRAGMA foreign_key_check",-1,&s,NULL);
     if(rc==SQLITE_OK) rc=sqlite3_step(s)==SQLITE_DONE?SQLITE_OK:SQLITE_CONSTRAINT;
     sqlite3_finalize(s);s=NULL;
