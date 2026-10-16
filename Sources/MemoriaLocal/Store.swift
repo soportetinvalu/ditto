@@ -353,8 +353,9 @@ final class ClipStore {
         guard data.count <= 128 * 1024 * 1024 else { throw LocalError("El respaldo cambió o supera 128 MiB.") }
         try data.write(to: copy, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: copy.path)
-        guard cm_validate_file(copy.path) == SQLITE_OK else { throw LocalError("Respaldo incompatible o dañado.") }
         let archive: ClipArchive = try {
+            // A standalone WAL snapshot may need sidecars even for a READONLY opener on macOS.
+            // Only this private copy is writable: ClipStore migrates v1 and validates its live connection.
             let other = try ClipStore(path: copy.path)
             return try other.archive()
         }()
