@@ -46,6 +46,20 @@ def main():
     native_source = "\n".join(p.read_text() for p in source.rglob("*.swift"))
     check("no_network_api_in_sources", not any(token in native_source for token in ["URLSession", "NWListener", "NWConnection", "import Network", "import WebKit", "WKWebView"]))
     check("no_placeholder_traps", not any(token in native_source for token in ["fatalError(", "preconditionFailure(", "TODO", "IMPLEMENT ME"]))
+    services = (source / "MemoriaLocal/Services.swift").read_text()
+    wait = (source / "MemoriaLocal/AccessibilityPermissionWait.swift").read_text()
+    tcc = (source / "MemoriaLocal/AccessibilityTCCInspection.swift").read_text()
+    reset = (source / "MemoriaLocal/AccessibilityReset.swift").read_text()
+    check("permission_no_modal_wait_loop", "while let alert" not in services and "runPermissionAlert" not in services and
+          "guard !permissionBusy, !offeringPermission" in services and "NSApp.hide(nil)" in services)
+    check("duplicate_prompt_does_not_extend_deadline", wait.index("guard !isWaiting") < wait.index("deadline = clock() + 60"))
+    check("tcc_inspection_readonly_own_service", "SQLITE_OPEN_READONLY | SQLITE_OPEN_NOMUTEX" in tcc and
+          "kTCCServiceAccessibility" in tcc and "client = ?1" in tcc and "client IN (?2, ?3)" in tcc and
+          not any(token in tcc for token in ["SQLITE_OPEN_CREATE", "SQLITE_OPEN_READWRITE", "INSERT INTO", "DELETE FROM"]))
+    check("targeted_reset_no_shell", '["reset", "Accessibility", "local.memorialocal.app"]' in reset and
+          '"/usr/bin/tccutil"' in reset and not any(token in reset for token in ['"sudo"', '"/bin/sh"', '"All"']))
+    packaging = (ROOT / "scripts/package_macos.sh").read_text()
+    check("no_unanchored_designated_requirement", "designated => identifier" not in packaging and "codesign -d -r-" in packaging)
     package = (ROOT / "Package.swift").read_text()
     check("no_remote_packages", ".package(url:" not in package and "dependencies: [.package" not in package)
     inventory = {p.relative_to(ROOT).as_posix(): {"bytes": p.stat().st_size, "sha256": hashlib.sha256(p.read_bytes()).hexdigest()} for p in files}

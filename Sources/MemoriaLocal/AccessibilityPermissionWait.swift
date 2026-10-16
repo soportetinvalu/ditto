@@ -15,7 +15,10 @@ final class AccessibilityPermissionWait {
          isTrusted: @escaping () -> Bool, prompt: @escaping () -> Void) {
         self.clock = clock; self.isTrusted = isTrusted; self.prompt = prompt
     }
+    var isWaiting: Bool { phase == .waiting }
     func request() {
+        // Duplicate actions must neither prompt again nor extend the original deadline.
+        guard !isWaiting else { return }
         guard !isTrusted() else { phase = .granted; return }
         deadline = clock() + 60
         phase = .waiting

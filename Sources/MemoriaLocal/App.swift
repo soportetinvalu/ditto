@@ -56,6 +56,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             monitor.onChange = { [weak self] in self?.history.reload() }
             monitor.onMessage = { [weak self] in self?.history.message($0) }
             paste.onMessage = { [weak self] in self?.history.message($0) }
+            paste.onHideForPermission = { [weak self] in
+                self?.history.hideForPermission(); self?.settings.hideForPermission()
+            }
+            paste.onPermissionState = { [weak self] busy, text in
+                self?.settings.updatePermissionState(busy: busy, message: text)
+                self?.history.accessibilityMessage = text
+                self?.status?.button?.toolTip = text
+            }
+            settings.onRequestPermission = { [weak self] in self?.paste.requestAccessibilityPermission() }
+            settings.onResetPermission = { [weak self] in self?.paste.resetAccessibilityPermission() }
             installMenu()
             preferences.applyAppearance()
             do { try shortcut.register(preferences.shortcut) } catch { showError(error) }
@@ -94,6 +104,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.removeAllItems()
         let state = NSMenuItem(title: !preferences.enabled ? "Captura desactivada" : preferences.paused ? "Captura en pausa" : "Captura activa · solo local", action: nil, keyEquivalent: "")
         menu.addItem(state)
+        if paste.permissionBusy {
+            menu.addItem(NSMenuItem(title: "Esperando permiso de macOS…", action: nil, keyEquivalent: ""))
+        }
         for (title, action) in [("Abrir historial", #selector(openHistory)),
                                 (preferences.paused ? "Reanudar captura" : "Pausar captura", #selector(togglePause)),
                                 ("Ajustes…", #selector(openSettings)), ("Acerca de / licencia", #selector(about))] {

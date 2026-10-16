@@ -45,6 +45,8 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
     var groupIDs = [String?]()
     var onSettings: (() -> Void)?
     var onPause: (() -> Void)?
+    var accessibilityMessage: String?
+    func hideForPermission() { panel.level = .normal; panel.orderOut(nil) }
     private var previewWindows = [NSWindow]()
     var selection: [Clip] { table.selectedRowIndexes.compactMap { $0 < clips.count ? clips[$0] : nil } }
 
@@ -55,6 +57,7 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
         super.init()
         panel.title = "Memoria Local — historial"
         panel.isReleasedWhenClosed = false; panel.level = .floating
+        panel.hidesOnDeactivate = true
         panel.minSize = NSSize(width: 450, height: 300)
         panel.setFrameAutosaveName("HistoryPanel")
         if !panel.setFrameUsingName("HistoryPanel") { panel.center() }
@@ -105,6 +108,8 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
         panel.initialFirstResponder = search
     }
     func open() {
+        guard !paste.permissionBusy else { message("Esperando permiso de macOS…"); return }
+        panel.level = .floating
         paste.rememberDestination(); reloadGroups()
         // A stale search/group/trash filter must not hide the opening target.
         search.stringValue = ""; groupPopup.selectItem(at: 0)
@@ -148,7 +153,7 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
             table.reloadData()
             let restored = IndexSet(clips.indices.filter { ids.contains(clips[$0].id) })
             table.selectRowIndexes(restored.isEmpty && !clips.isEmpty ? IndexSet(integer: 0) : restored, byExtendingSelection: false)
-            message("\(clips.count) copias · \(!preferences.enabled ? "captura desactivada" : preferences.paused ? "en pausa" : "captura activa") · ↵ pegar · ⇧↵ texto · Espacio vista")
+            message(accessibilityMessage ?? "\(clips.count) copias · \(!preferences.enabled ? "captura desactivada" : preferences.paused ? "en pausa" : "captura activa") · ↵ pegar · ⇧↵ texto · Espacio vista")
         }
     }
     func numberOfRows(in tableView: NSTableView) -> Int { clips.count }

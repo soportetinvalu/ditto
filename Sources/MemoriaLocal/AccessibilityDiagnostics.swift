@@ -33,6 +33,9 @@ enum AccessibilityDiagnostics {
     // This process only: recording never requests permission; the explicit button does.
     private(set) static var promptInvocationCount = 0
     private(set) static var lastPromptAt: Date?
+    static var lastPromptReturn: Bool?
+    static var lastReset = "no ejecutado"
+    static var tccBeforeReset: String?
     static func recordPrompt(at date: Date = Date()) {
         promptInvocationCount += 1; lastPromptAt = date
     }
@@ -40,7 +43,7 @@ enum AccessibilityDiagnostics {
         let when = lastAt.map { ISO8601DateFormatter().string(from: $0) } ?? "nunca"
         return "kAXTrustedCheckOptionPrompt: prompt=true invocado en este proceso: \(count > 0); llamadas: \(count); última invocación (UTC): \(when)"
     }
-    static func report(bundle: Bundle = .main) -> String {
+    static func report(bundle: Bundle = .main, includeTCC: Bool = false) -> String {
         let info = bundle.infoDictionary ?? [:]
         let id = bundle.bundleIdentifier ?? "sin identificador"
         var lines = ["Memoria Local — diagnóstico de Accesibilidad", "No contiene el historial ni el contenido anterior del portapapeles.",
@@ -51,6 +54,9 @@ enum AccessibilityDiagnostics {
                      "pid: \(ProcessInfo.processInfo.processIdentifier)", "bundle id: \(id)",
                      "AXIsProcessTrusted(): \(AXIsProcessTrusted())",
                      promptSummary(count: promptInvocationCount, lastAt: lastPromptAt),
+                     "Último retorno inmediato de prompt=true: \(lastPromptReturn.map { String($0) } ?? "no invocado"); no indica que el aviso se haya mostrado ni la razón de una denegación.",
+                     "AXIsProcessTrustedWithOptions(prompt:false): \(AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: false] as CFDictionary))",
+                     "Restablecimiento: \(lastReset)",
                      "quarantine (bundle): \(quarantine(bundle.bundleURL.path))",
                      "instancias con el mismo bundle id: \(NSRunningApplication.runningApplications(withBundleIdentifier: id).count)",
                      "Rosetta: \(translated())"]
@@ -68,6 +74,13 @@ enum AccessibilityDiagnostics {
                 // Static validation also checks on-disk resources; dynamic validity alone is not enough.
                 lines.append("SecStaticCodeCheckValidity(default): \(status(SecStaticCodeCheckValidity(disk, SecCSFlags(rawValue: 0), nil)))")
                 lines.append("SecStaticCodeCheckValidity(strict): \(status(SecStaticCodeCheckValidity(disk, SecCSFlags(rawValue: kSecCSStrictValidate), nil)))")
+                var designated: SecRequirement?
+                let requirementRC = SecCodeCopyDesignatedRequirement(disk, SecCSFlags(rawValue: 0), &designated)
+                if requirementRC == errSecSuccess, let designated {
+                    var requirementText: CFString?
+                    let rc = SecRequirementCopyString(designated, SecCSFlags(rawValue: 0), &requirementText)
+                    lines.append("DR del binario actual: \(requirementText as String? ?? "no disponible (\(rc))"); no es el csreq guardado por TCC")
+                } else { lines.append("DR del binario actual: no disponible (\(requirementRC))") }
                 var signing: CFDictionary?
                 let signingRC = SecCodeCopySigningInformation(disk, SecCSFlags(rawValue: kSecCSSigningInformation), &signing)
                 lines.append("SecCodeCopySigningInformation: \(status(signingRC)) (información, no prueba de validez)")
@@ -85,6 +98,9 @@ enum AccessibilityDiagnostics {
                 } else { lines.append("entitlements: ausentes") }
             } else { lines.append("SigningInformation y validación estática: no ejecutadas (falló CopyStaticCode)") }
         } else { lines.append("Validación y SigningInformation: no ejecutadas (falló CopySelf)") }
+        lines.append("Las APIs AX solo devuelven confianza efectiva; no distinguen sin entrada/denegación/csreq incompatible.")
+        if includeTCC { lines += AccessibilityTCCInspection.report(bundle: bundle) }
+        if let tccBeforeReset { lines += ["TCC observado antes del último restablecimiento:", tccBeforeReset] }
         lines.append("Firma ad hoc: el identificador no garantiza identidad TCC estable entre builds. Este informe no concede ni restablece permisos.")
         return lines.joined(separator: "\n") + "\n"
     }

@@ -10,6 +10,12 @@ final class SettingsController: NSObject, NSWindowDelegate {
     let store: ClipStore
     var onSave: (() throws -> Void)?
     var onCopyDiagnostic: (() throws -> URL)?
+    var onRequestPermission: (() -> Void)?
+    var onResetPermission: (() -> Void)?
+    private(set) var permissionBusy = false
+    private let permissionMessage = NSTextField(wrappingLabelWithString: "Accesibilidad: solo macOS puede conceder el permiso.")
+    private let requestPermission = NSButton(title: "Solicitar permiso", target: nil, action: nil)
+    private let resetPermission = NSButton(title: "Restablecer permiso de Accesibilidad", target: nil, action: nil)
     var onShortcutSave: ((ShortcutConfiguration) throws -> Void)?
     private let recorder = ShortcutRecorder(frame: .zero)
     private let shortcutValue = NSTextField(labelWithString: "")
@@ -37,6 +43,26 @@ final class SettingsController: NSObject, NSWindowDelegate {
     func open() {
         if window == nil { build() }
         load(); NSApp.activate(ignoringOtherApps: true); window.makeKeyAndOrderFront(nil)
+    }
+    var permissionActionsEnabled: Bool { requestPermission.isEnabled && resetPermission.isEnabled }
+    func hideForPermission() { window?.orderOut(nil) }
+    func updatePermissionState(busy: Bool, message: String) {
+        permissionBusy = busy
+        requestPermission.isEnabled = !busy; resetPermission.isEnabled = !busy
+        permissionMessage.stringValue = message
+    }
+    @objc private func requestAccessibility() {
+        guard !permissionBusy else { return }
+        onRequestPermission?()
+    }
+    @objc private func resetAccessibility() {
+        guard !permissionBusy else { return }
+        // Explicit confirmation: revokes only this app's Accessibility grant.
+        let alert = NSAlert(); alert.messageText = "¿Restablecer permiso de Accesibilidad?"
+        alert.informativeText = "Se retirará únicamente el permiso de Memoria Local para tu usuario y se pedirá de nuevo con el aviso oficial. No borra el historial ni cambia permisos de otras apps."
+        alert.addButton(withTitle: "Restablecer"); alert.addButton(withTitle: "Cancelar")
+        let response = alert.runModal(); alert.window.orderOut(nil)
+        if response == .alertFirstButtonReturn { onResetPermission?() }
     }
     private func build() {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 720), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
@@ -79,7 +105,13 @@ final class SettingsController: NSObject, NSWindowDelegate {
                                             NSButton(title: "Guardar", target: self, action: #selector(save))]); actions.spacing = 8
         let diagnostic = NSButton(title: "Copiar diagnóstico", target: self, action: #selector(copyDiagnostic))
         diagnostic.toolTip = "Diagnóstico local de Accesibilidad y firma. No incluye el historial; reemplaza el portapapeles sin capturarlo."
-        let stack = NSStackView(views: [title, capture, autoPaste, diagnostic, custom, reorder, login,
+        requestPermission.target = self; requestPermission.action = #selector(requestAccessibility)
+        resetPermission.target = self; resetPermission.action = #selector(resetAccessibility)
+        resetPermission.toolTip = "Revoca solo Accesibilidad de Memoria Local para tu usuario y solicita de nuevo. No concede acceso por sí solo."
+        permissionMessage.preferredMaxLayoutWidth = 520
+        permissionMessage.font = .systemFont(ofSize: 11)
+        let permissions = NSStackView(views: [requestPermission, resetPermission]); permissions.spacing = 8
+        let stack = NSStackView(views: [title, capture, autoPaste, permissions, permissionMessage, diagnostic, custom, reorder, login,
                                        row("Excluir aplicaciones (identificadores separados por ;)", excluded),
                                        row("Permitir solo estas aplicaciones (opcional)", allowed), numbers,
                                        row("Separador para selección múltiple (\\n = salto, \\t = tabulador)", separator),
@@ -100,17 +132,14 @@ final class SettingsController: NSObject, NSWindowDelegate {
         window.center()
     }
     @objc private func copyDiagnostic() {
-        let alert = NSAlert()
         do {
             guard let onCopyDiagnostic else { throw LocalError("El servicio de diagnóstico no está disponible.") }
             let url = try onCopyDiagnostic()
-            alert.messageText = "Diagnóstico copiado"
-            alert.informativeText = "Pega el texto para compartirlo. No contiene el historial ni se ha guardado como una copia del historial. Sustituye el portapapeles actual. También está guardado en:\n\(url.path)"
+            permissionMessage.stringValue = "Diagnóstico copiado: sustituye el portapapeles, no incluye el historial. Archivo: \(url.path)"
         } catch {
-            alert.messageText = "No se pudo completar la copia del diagnóstico"
-            alert.informativeText = error.localizedDescription
+            permissionMessage.stringValue = "No se pudo copiar el diagnóstico: \(error.localizedDescription)"
         }
-        alert.addButton(withTitle: "Cerrar"); alert.runModal()
+        // No extra modal can cover the official macOS prompt, even during a wait.
     }
     private func load() {
         let d = preferences.defaults

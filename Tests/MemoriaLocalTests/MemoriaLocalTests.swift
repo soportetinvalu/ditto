@@ -3,6 +3,7 @@ import XCTest
 import AppKit
 import Carbon
 import ClipCore
+import Security
 @testable import MemoriaLocal
 
 final class MemoriaLocalTests: XCTestCase {
@@ -243,7 +244,7 @@ final class MemoriaLocalTests: XCTestCase {
         XCTAssertEqual(alert.messageText, "Permitir el pegado automático")
         XCTAssertEqual(alert.buttons.map(\.title), ["Solicitar permiso", "Solo copiar", "Copiar diagnóstico", "Abrir Accesibilidad"])
         XCTAssertTrue(alert.informativeText.contains("aviso oficial de macOS"))
-        XCTAssertTrue(alert.informativeText.contains("Si macOS no muestra su propio aviso, quita la entrada de Memoria Local con − en Accesibilidad y vuelve a pulsar Solicitar permiso"))
+        XCTAssertTrue(alert.informativeText.contains("Restablecer permiso de Accesibilidad en Ajustes de Memoria Local"))
         XCTAssertFalse(alert.informativeText.contains("vuelve a añadirla"))
         XCTAssertTrue(alert.informativeText.contains("pegar manualmente"))
         XCTAssertEqual(PasteCoordinator.accessibilitySettingsURL?.absoluteString,
@@ -314,6 +315,94 @@ final class MemoriaLocalTests: XCTestCase {
         wait.check(); wait.check(onForeground: true)
         XCTAssertEqual(wait.phase, .cancelled); XCTAssertEqual(prompts, 1)
         wait.request(); XCTAssertEqual(wait.phase, .granted); XCTAssertEqual(prompts, 1)
+    }
+    func testDuplicateAccessibilityRequestCannotPromptAgainOrExtendDeadline() {
+        var now: TimeInterval = 0; var prompts = 0
+        let wait = AccessibilityPermissionWait(clock: { now }, isTrusted: { false }, prompt: { prompts += 1 })
+        wait.request(); XCTAssertTrue(wait.isWaiting)
+        now = 59; wait.request(); wait.request()
+        XCTAssertEqual(prompts, 1)
+        now = 60; wait.check()
+        XCTAssertEqual(wait.phase, .timedOut); XCTAssertFalse(wait.isWaiting)
+        wait.request(); XCTAssertEqual(prompts, 2)
+    }
+    func testTargetedResetHasFixedArgumentsAndFailureNeverMeansSuccess() {
+        XCTAssertEqual(AccessibilityReset.executable.path, "/usr/bin/tccutil")
+        XCTAssertEqual(AccessibilityReset.arguments, ["reset", "Accessibility", "local.memorialocal.app"])
+        XCTAssertTrue(AccessibilityResetResult(exitCode: 0, output: "reset").succeeded)
+        XCTAssertFalse(AccessibilityResetResult(exitCode: 1, output: "denied").succeeded)
+        XCTAssertFalse(AccessibilityResetResult(exitCode: -1, output: "launch failed").succeeded)
+        XCTAssertTrue(AccessibilityResetResult(exitCode: 1, output: "denied").summary.contains("exit=1"))
+    }
+    func testPermissionControlsDisableAndPanelLowersWithoutReactivation() throws {
+        _ = NSApplication.shared
+        let store = try ClipStore(path: ":memory:")
+        let preferences = Preferences()
+        let board = NSPasteboard(name: NSPasteboard.Name("MemoriaLocalWindow." + UUID().uuidString))
+        defer { board.releaseGlobally() }
+        let monitor = ClipboardMonitor(store: store, preferences: preferences, pasteboard: board)
+        let paste = PasteCoordinator(monitor: monitor, preferences: preferences)
+        let history = HistoryController(store: store, preferences: preferences, monitor: monitor, paste: paste)
+        XCTAssertEqual(history.panel.level, .floating)
+        XCTAssertTrue(history.panel.hidesOnDeactivate)
+        history.hideForPermission()
+        XCTAssertFalse(history.panel.isVisible); XCTAssertEqual(history.panel.level, .normal)
+        history.accessibilityMessage = "Esperando permiso de macOS…"; history.reload()
+        XCTAssertEqual(history.information.stringValue, "Esperando permiso de macOS…")
+        let settings = SettingsController(preferences: preferences, store: store)
+        settings.updatePermissionState(busy: true, message: "Esperando permiso de macOS…")
+        XCTAssertTrue(settings.permissionBusy); XCTAssertFalse(settings.permissionActionsEnabled)
+        settings.updatePermissionState(busy: false, message: "Permiso concedido")
+        XCTAssertFalse(settings.permissionBusy); XCTAssertTrue(settings.permissionActionsEnabled)
+    }
+    func testTCCReadFailureIsNotReportedAsMissingRowAndNeverCreatesDatabase() throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
+        let report = AccessibilityTCCInspection.inspect(path: path, identifier: "test.own", bundlePath: "/test.app", executablePath: "/test.app/run").joined(separator: "\n")
+        XCTAssertTrue(report.contains("TCC no legible")); XCTAssertFalse(report.contains("0 filas"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: path))
+        XCTAssertTrue(AccessibilityTCCInspection.requirementReport(Data([0, 1, 2])).contains("no decodificable"))
+    }
+    func testTCCReadOnlyQueryScopesServiceClientAndPathAndPreservesBytes() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("synthetic.sqlite").path
+        do {
+            let store = try ClipStore(path: path)
+            try store.run("CREATE TABLE access(service TEXT, client TEXT, client_type INTEGER, auth_value INTEGER, csreq BLOB)")
+            for (service, client, type, auth) in [("kTCCServiceAccessibility", "test.own", 0, 2),
+                ("kTCCServiceAccessibility", "/test.app/run", 1, 0),
+                ("kTCCServiceAccessibility", "other.secret", 0, 2),
+                ("kTCCServiceCamera", "test.own", 0, 2),
+                ("kTCCServiceAccessibility", "test.own", 1, 2)] {
+                try store.run("INSERT INTO access VALUES(?,?,?,?,NULL)", [service, client, type, auth])
+            }
+        }
+        let before = try Data(contentsOf: URL(fileURLWithPath: path))
+        let report = AccessibilityTCCInspection.inspect(path: path, identifier: "test.own", bundlePath: "/test.app", executablePath: "/test.app/run").joined(separator: "\n")
+        XCTAssertTrue(report.contains("2 filas propias")); XCTAssertTrue(report.contains("auth_value=2"))
+        XCTAssertTrue(report.contains("auth_value=0")); XCTAssertTrue(report.contains("csreq=NULL"))
+        XCTAssertFalse(report.contains("other.secret")); XCTAssertFalse(report.contains("Camera"))
+        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: path)), before)
+        let empty = AccessibilityTCCInspection.inspect(path: path, identifier: "no.client", bundlePath: "/none", executablePath: "/none/run").joined(separator: "\n")
+        XCTAssertTrue(empty.contains("0 filas propias")); XCTAssertFalse(empty.contains("TCC no legible"))
+    }
+    func testTCCRequirementEvaluationSeparatesMismatchFromUndecodable() throws {
+        var requirement: SecRequirement?
+        XCTAssertEqual(SecRequirementCreateWithString("identifier \"invalid.test.not-this-process\"" as CFString, SecCSFlags(rawValue: 0), &requirement), errSecSuccess)
+        var data: CFData?
+        XCTAssertEqual(SecRequirementCopyData(try XCTUnwrap(requirement), SecCSFlags(rawValue: 0), &data), errSecSuccess)
+        let report = AccessibilityTCCInspection.requirementReport(try XCTUnwrap(data) as Data)
+        XCTAssertTrue(report.contains("invalid.test.not-this-process"))
+        XCTAssertTrue(report.contains("csreq frente a este proceso: \(errSecCSReqFailed)"), report)
+        XCTAssertFalse(report.contains("no decodificable"))
+        var code: SecCode?; var disk: SecStaticCode?; var own: SecRequirement?
+        XCTAssertEqual(SecCodeCopySelf(SecCSFlags(rawValue: 0), &code), errSecSuccess)
+        XCTAssertEqual(SecCodeCopyStaticCode(try XCTUnwrap(code), SecCSFlags(rawValue: 0), &disk), errSecSuccess)
+        XCTAssertEqual(SecCodeCopyDesignatedRequirement(try XCTUnwrap(disk), SecCSFlags(rawValue: 0), &own), errSecSuccess)
+        var ownData: CFData?
+        XCTAssertEqual(SecRequirementCopyData(try XCTUnwrap(own), SecCSFlags(rawValue: 0), &ownData), errSecSuccess)
+        XCTAssertTrue(AccessibilityTCCInspection.requirementReport(try XCTUnwrap(ownData) as Data).contains("csreq frente a este proceso: 0"))
     }
     func testAccessibilityPromptDiagnosticRecordsInvocationAndUTCWithoutClaimingConsent() {
         let initialCount = AccessibilityDiagnostics.promptInvocationCount

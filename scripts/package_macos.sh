@@ -49,7 +49,16 @@ python3 -c 'import pathlib,plistlib,sys; p=pathlib.Path(sys.argv[1]); v=plistlib
 plutil -lint "$APP/Contents/Info.plist"
 # Local ad-hoc signing only; not Developer ID, notarization or permission bypass.
 codesign --force --sign - "$APP"
+codesign -d -r- "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
+# Ephemeral CI only: prove Apple's targeted reset runs without sudo, without
+# launching the app, granting any permission, or affecting another bundle.
+if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP"
+  printf 'TCC reset probe UID: '; /usr/bin/id -u
+  /usr/bin/tccutil reset Accessibility local.memorialocal.app
+  printf '%s\n' 'PASS: targeted Accessibility reset without sudo (CI user only).'
+fi
 # Corresponding source is always delivered alongside the binary, with exact file hashes.
 python3 "$ROOT/scripts/source_archive.py" "$OUT/MemoriaLocal-source.zip"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/MemoriaLocal-arm64.zip"
