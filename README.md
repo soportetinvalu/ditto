@@ -36,6 +36,8 @@ No se solicitan permisos de monitorización del teclado: el grabador solo recibe
 
 macOS y otras apps pueden reservar combinaciones o interceptarlas antes de que lleguen al grabador. Si Carbon rechaza una combinación, Ajustes informa del error y conserva **el atajo anterior y sus preferencias**, sin desregistrarlo primero. Al arrancar no hay un registro previo que conservar: si el atajo guardado está ocupado, se informa y el icono sigue disponible para elegir otro. Comprueba la combinación en tu Mac; no se garantiza detectar todas las interferencias del sistema.
 
+Comprueba también [abrir NexClip desde campos de contraseña](docs/ATAJO-CONTRASENAS.md): el icono es una entrada alternativa y el aviso de protección no significa que macOS bloquee todos los atajos.
+
 - `Enter`/doble clic: formato original; `Shift-Enter`: solo texto.
 - Flechas para selección; `Espacio`: vista previa; `Escape`: ocultar.
 - `⌘F`: buscar; `⌘C`: copiar sin eventos; `⌘E`: editar como copia de texto nueva.

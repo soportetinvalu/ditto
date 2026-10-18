@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import AppKit
+import Carbon
 import ClipCore
 
 final class HistoryTable: NSTableView {
@@ -41,6 +42,10 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
     let trashButton = NSButton(checkboxWithTitle: "Papelera", target: nil, action: nil)
     let regexButton = NSButton(checkboxWithTitle: "Regex", target: nil, action: nil)
     let information = NSTextField(labelWithString: "")
+    let secureInputNotice = NSTextField(wrappingLabelWithString: "")
+    // Read before activating NexClip: moving focus may disable secure input.
+    var secureInputEnabled: () -> Bool = { IsSecureEventInputEnabled() }
+    static let secureInputMessage = "macOS está protegiendo el teclado. Si el atajo no abre NexClip, usa su icono de la barra de menús o sal del campo de contraseña. El pegado depende de la app de destino."
     var clips = [Clip]()
     var groupIDs = [String?]()
     var onSettings: (() -> Void)?
@@ -58,6 +63,7 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
         panel.title = "NexClip — historial"
         panel.isReleasedWhenClosed = false; panel.level = .floating
         panel.hidesOnDeactivate = true
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.minSize = NSSize(width: 450, height: 300)
         panel.setFrameAutosaveName("HistoryPanel")
         if !panel.setFrameUsingName("HistoryPanel") { panel.center() }
@@ -94,13 +100,18 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
         let bottom = NSStackView(views: [search, regexButton, actions]); bottom.spacing = 6
         information.font = .systemFont(ofSize: 11); information.textColor = .secondaryLabelColor
         information.maximumNumberOfLines = 2; information.lineBreakMode = .byWordWrapping
-        let stack = NSStackView(views: [top, scroll, bottom, information]); stack.orientation = .vertical
+        secureInputNotice.font = .systemFont(ofSize: 12)
+        secureInputNotice.textColor = .labelColor
+        secureInputNotice.setAccessibilityLabel("Protección del teclado de macOS")
+        secureInputNotice.isHidden = true
+        let stack = NSStackView(views: [top, secureInputNotice, scroll, bottom, information]); stack.orientation = .vertical
         stack.alignment = .leading; stack.spacing = 7; stack.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 10), stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -10),
             stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 9), stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -8),
             top.widthAnchor.constraint(equalTo: stack.widthAnchor), scroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
+            secureInputNotice.widthAnchor.constraint(equalTo: stack.widthAnchor),
             bottom.widthAnchor.constraint(equalTo: stack.widthAnchor), information.widthAnchor.constraint(equalTo: stack.widthAnchor),
             scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 120), groupPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 110)
         ])
@@ -109,6 +120,9 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
     }
     func open() {
         guard !paste.permissionBusy else { message("Esperando permiso de macOS…"); return }
+        let secureInputWasEnabled = secureInputEnabled()
+        secureInputNotice.stringValue = secureInputWasEnabled ? Self.secureInputMessage : ""
+        secureInputNotice.isHidden = !secureInputWasEnabled
         panel.level = .floating
         paste.rememberDestination(); reloadGroups()
         // A stale search/group/trash filter must not hide the opening target.

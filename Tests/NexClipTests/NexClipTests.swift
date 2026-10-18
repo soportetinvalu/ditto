@@ -633,6 +633,79 @@ final class NexClipTests: XCTestCase {
             XCTAssertFalse(controller.panel.isVisible)
         }
     }
+    func testSecureInputNoticeIsSampledBeforeOpeningAndSurvivesReload() throws {
+        try withHistory { controller, board in
+            controller.hide()
+            var samples = 0
+            controller.secureInputEnabled = {
+                samples += 1
+                XCTAssertFalse(controller.panel.isVisible)
+                return true
+            }
+            let count = board.changeCount
+            controller.open()
+            XCTAssertEqual(samples, 1)
+            XCTAssertTrue(controller.panel.isVisible)
+            XCTAssertFalse(controller.secureInputNotice.isHidden)
+            XCTAssertEqual(controller.secureInputNotice.stringValue, HistoryController.secureInputMessage)
+            controller.message("Otro mensaje")
+            controller.search.stringValue = "sin resultados"; controller.reload()
+            XCTAssertEqual(samples, 1) // Do not lose the snapshot when focus disables secure input.
+            XCTAssertFalse(controller.secureInputNotice.isHidden)
+            XCTAssertEqual(controller.secureInputNotice.stringValue, HistoryController.secureInputMessage)
+            XCTAssertEqual(board.changeCount, count)
+            XCTAssertFalse(controller.preferences.enabled)
+        }
+    }
+    func testSecureInputNoticeClearsOnNextUnprotectedOpening() throws {
+        try withHistory { controller, _ in
+            var secure = false
+            controller.secureInputEnabled = { secure }
+            for value in [false, true, false, true] {
+                secure = value
+                controller.open()
+                XCTAssertTrue(controller.panel.isVisible)
+                XCTAssertEqual(controller.secureInputNotice.isHidden, !value)
+                XCTAssertEqual(controller.secureInputNotice.stringValue, value ? HistoryController.secureInputMessage : "")
+            }
+        }
+    }
+    func testPanelCanAppearAcrossDesktopsAndAlongsideFullScreenApps() throws {
+        try withHistory { controller, _ in
+            XCTAssertTrue(controller.panel.collectionBehavior.contains(.canJoinAllSpaces))
+            XCTAssertTrue(controller.panel.collectionBehavior.contains(.fullScreenAuxiliary))
+            XCTAssertTrue(controller.panel.hidesOnDeactivate)
+            XCTAssertEqual(controller.panel.level, .floating)
+            // The same open() used by the menu/icon must not depend on shortcut registration.
+            controller.secureInputEnabled = { true }
+            controller.open()
+            XCTAssertTrue(controller.panel.isVisible)
+            XCTAssertFalse(controller.secureInputNotice.isHidden)
+        }
+    }
+    func testCarbonRegistrationAndHandlerWorkWithProcessSecureInputEnabled() throws {
+        _ = NSApplication.shared
+        let rc = EnableSecureEventInput()
+        XCTAssertEqual(rc, noErr)
+        guard rc == noErr else { return }
+        defer { XCTAssertEqual(DisableSecureEventInput(), noErr) }
+        XCTAssertTrue(IsSecureEventInputEnabled())
+        let shortcut = GlobalShortcut()
+        var deliveries = 0
+        shortcut.action = { deliveries += 1 }
+        try shortcut.register(.init(keyCode: 79, modifiers: UInt32(cmdKey | controlKey | optionKey)))
+        var event: EventRef?
+        XCTAssertEqual(CreateEvent(nil, OSType(kEventClassKeyboard), UInt32(kEventHotKeyPressed),
+                                   GetCurrentEventTime(), UInt32(kEventAttributeUserEvent), &event), noErr)
+        let created = try XCTUnwrap(event)
+        defer { ReleaseEvent(created) }
+        // Exercise real Carbon dispatch, NOT a physical shortcut from a different app.
+        XCTAssertEqual(deliveries, 0)
+        XCTAssertEqual(SendEventToEventTarget(created, GetApplicationEventTarget()), noErr)
+        XCTAssertEqual(deliveries, 1)
+        XCTAssertTrue(IsSecureEventInputEnabled())
+        withExtendedLifetime(shortcut) {}
+    }
     func testClickMarksAndRefreshesRowWithoutPastingOrReordering() throws {
         try withHistory { controller, board in
             let store = controller.store
