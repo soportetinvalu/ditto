@@ -174,9 +174,11 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
         search.stringValue = ""; groupPopup.selectItem(at: 0)
         favoriteButton.state = .off; trashButton.state = .off; regexButton.state = .off
         reload(); recordOpening(.historyLoaded)
-        // Keep the existing presentation sequence until a Mac trace discriminates the cause.
-        NSApp.activate(ignoringOtherApps: true); recordOpening(.activationReturned)
+        // Establish the requested window before asking LaunchServices to activate
+        // this accessory process. Ordering alone is not application activation.
         panel.makeKeyAndOrderFront(nil)
+        _ = NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps])
+        recordOpening(.activationReturned)
         if let row = ClipStore.initialSelection(in: clips) {
             table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
             table.scrollRowToVisible(row); panel.makeFirstResponder(table)
