@@ -20,7 +20,16 @@ final class HistoryOpeningTests: XCTestCase {
     }
     private func pump(_ duration: TimeInterval) {
         let end = Date().addingTimeInterval(duration)
-        while Date() < end { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        while Date() < end {
+            // RunLoop alone does not dispatch the AppKit activation/window events
+            // that NSApplication.run normally consumes in a real application.
+            if let event = NSApp.nextEvent(matching: .any, until: Date().addingTimeInterval(0.01),
+                                           inMode: .default, dequeue: true) {
+                NSApp.sendEvent(event)
+            }
+            NSApp.updateWindows()
+            RunLoop.main.run(until: Date().addingTimeInterval(0.001))
+        }
     }
     private func wait(_ condition: () -> Bool, seconds: TimeInterval = 5) -> Bool {
         let end = Date().addingTimeInterval(seconds)
