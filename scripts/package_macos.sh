@@ -52,14 +52,8 @@ plutil -lint "$APP/Contents/Info.plist"
 # Neither mode is Developer ID, notarization or a permission bypass.
 bash "$ROOT/scripts/sign_macos.sh" "$APP" "$OUT/NexClip-Developer.cer"
 codesign --verify --deep --strict --verbose=2 "$APP"
-# Ephemeral CI only: prove Apple's targeted reset runs without sudo, without
-# launching the app, granting any permission, or affecting another bundle.
-if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
-  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$APP"
-  printf 'TCC reset probe UID: '; /usr/bin/id -u
-  /usr/bin/tccutil reset Accessibility com.nexclip.app
-  printf '%s\n' 'PASS: targeted Accessibility reset without sudo (CI user only).'
-fi
+# Do not mutate TCC, even on an ephemeral CI user. This build only verifies
+# signing/integrity; permission persistence belongs to recipient acceptance.
 # Corresponding source is always delivered alongside the binary, with exact file hashes.
 python3 "$ROOT/scripts/source_archive.py" "$OUT/NexClip-source.zip"
 ditto -c -k --sequesterRsrc --keepParent "$APP" "$OUT/NexClip-arm64.zip"
