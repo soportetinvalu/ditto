@@ -79,6 +79,9 @@ final class HistoryOpeningTests: XCTestCase {
             throw XCTSkip("Requires NEXCLIP_RUN_FOCUS_TESTS=1 and an interactive macOS session")
         }
         _ = NSApplication.shared
+        // swift test is a command-line XCTest host, not an NSApplication.run host.
+        // Complete AppKit launch before evaluating real inter-process activation.
+        NSApp.finishLaunching()
         let previousPolicy = NSApp.activationPolicy()
         XCTAssertTrue(NSApp.setActivationPolicy(.accessory))
         defer { _ = NSApp.setActivationPolicy(previousPolicy) }
@@ -109,11 +112,32 @@ final class HistoryOpeningTests: XCTestCase {
             XCTAssertTrue(wait { FileManager.default.fileExists(atPath: ready.path) &&
                 NSWorkspace.shared.frontmostApplication?.processIdentifier == child.processIdentifier && !NSApp.isActive })
             let external = try XCTUnwrap(NSRunningApplication(processIdentifier: child.processIdentifier))
+            // Capability control independent of HistoryController: the XCTest host
+            // must be able to activate an ordinary NSWindow before its presenter
+            // can be judged. A CI host failing this control is not a product red.
+            let control = NSWindow(contentRect: NSRect(x: 120, y: 120, width: 240, height: 100),
+                                   styleMask: [.titled], backing: .buffered, defer: false)
+            control.isReleasedWhenClosed = false
+            defer { control.close() }
+            NSApp.activate(ignoringOtherApps: true)
+            control.makeKeyAndOrderFront(nil)
+            let controlReady = wait { NSApp.isActive && control.isKeyWindow &&
+                control.occlusionState.contains(.visible) }
+            print("FOCUS hostControl mode=\(mode) active=\(NSApp.isActive) key=\(control.isKeyWindow) visible=\(control.isVisible) occluded=\(!control.occlusionState.contains(.visible))")
+            control.orderOut(nil)
+            guard controlReady else {
+                throw XCTSkip("Infrastructure: command-line XCTest host cannot activate an independent AppKit control window; presenter not evaluated")
+            }
+            XCTAssertTrue(external.activate(options: [.activateIgnoringOtherApps]))
+            XCTAssertTrue(wait { !NSApp.isActive &&
+                NSWorkspace.shared.frontmostApplication?.processIdentifier == child.processIdentifier })
             try withHistory { controller, board in
                 let changeCount = board.changeCount
                 controller.open(source: .menu) // Real shared presenter; NOT a physical shortcut/menu E2E.
-                XCTAssertTrue(wait { NSApp.isActive && controller.panel.isVisible && controller.panel.isKeyWindow &&
-                    controller.panel.occlusionState.contains(.visible) && controller.panel.isOnActiveSpace })
+                let opened = wait { NSApp.isActive && controller.panel.isVisible && controller.panel.isKeyWindow &&
+                    controller.panel.occlusionState.contains(.visible) && controller.panel.isOnActiveSpace }
+                print("FOCUS presenter mode=\(mode) opened=\(opened)\n\(controller.openingDiagnostic)")
+                XCTAssertTrue(opened, mode)
                 // No transient flash counted as success. Observe through several run-loop turns.
                 let end = Date().addingTimeInterval(0.6)
                 repeat {
