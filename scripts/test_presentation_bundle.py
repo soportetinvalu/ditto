@@ -48,8 +48,9 @@ def main():
     current = (ROOT / history_path).read_text()
     baseline = run(['git', 'show', BASELINE + ':' + history_path], stdout=subprocess.PIPE).stdout.decode()
     # This counterfactual removes actual presentation, not assertions or AppKit state.
-    negative = current.replace('        panel.makeKeyAndOrderFront(nil)\n', '')
-    negative = negative.replace('        _ = NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps])\n', '')
+    start = current.index('        // Ordering a window is not activation')
+    end = current.index('        recordOpening(.activationReturned)', start)
+    negative = current[:start] + current[end:]
     assert negative != current
     sources = [p for p in sorted((ROOT / 'Sources/NexClip').glob('*.swift')) if p.name not in {'App.swift', 'HistoryController.swift'}]
     reports = []
@@ -76,7 +77,7 @@ def main():
     sensitivity = all(any(c['name'] == 'externalOwnsFocus' and c['passed'] for c in r['checks']) and
                       any(c['name'] == 'presentedActiveKeyVisible' and not c['passed'] for c in r['checks']) and
                       any(c['name'] == 'fixtureCleaned' and c['passed'] for c in r['checks']) for r in negative)
-    passed = len(candidate) == 2 and all(r['passed'] for r in candidate) and len(negative) == 2 and sensitivity
+    passed = len(candidate) == 2 and all(r['passed'] and 'phase=activationCompleted' in r['diagnostic'] for r in candidate) and len(negative) == 2 and sensitivity
     summary = dict(passed=passed, baseline_sha=BASELINE, reports=reports,
                    sensitivity=sensitivity, candidate_cases=len(candidate), skipped=0,
                    source_commit=run(['git', 'rev-parse', 'HEAD'], stdout=subprocess.PIPE).stdout.decode().strip())

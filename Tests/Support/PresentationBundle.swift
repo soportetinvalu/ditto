@@ -29,7 +29,7 @@ final class PresentationDelegate: NSObject, NSApplicationDelegate {
     }
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Run after the LaunchServices launch has finished, not inside its callback.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { self.run() }
+        Timer.scheduledTimer(withTimeInterval: 0.3, repeats: false) { _ in self.run() }
     }
     func run() {
         var diagnostic = ""
@@ -114,6 +114,7 @@ final class PresentationDelegate: NSObject, NSApplicationDelegate {
             check("deactivationHides", wait { !NSApp.isActive && !history.panel.isKeyWindow && !history.panel.occlusionState.contains(.visible) })
             pump(0.4)
             check("noDelayedFocusTheft", !NSApp.isActive && !history.panel.occlusionState.contains(.visible))
+            history.open(source: .menu)
             history.hideForPermission()
             _ = NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps])
             pump(0.4)

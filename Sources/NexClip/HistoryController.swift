@@ -55,8 +55,8 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
     // Bounded, process-local metadata only. Export requires an explicit menu action.
     enum OpeningSource: String { case internalRequest, shortcut, statusClick, menu }
     private enum OpeningPhase: String {
-        case requested, permissionBlocked, destinationRemembered, groupsLoaded, historyLoaded
-        case activationReturned, ordered, nextTurn, settled
+        case requested, permissionBlocked, modalBlocked, destinationRemembered, groupsLoaded, historyLoaded
+        case activationReturned, activationCompleted, activationFailed, ordered, nextTurn, settled
         case becameActive, resignedActive, becameKey, resignedKey, hidden, permissionHidden
     }
     private var openingAttempt = 0
@@ -164,6 +164,7 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
         guard !paste.permissionBusy else {
             recordOpening(.permissionBlocked); message("Esperando permiso de macOS…"); return
         }
+        guard NSApp.modalWindow == nil else { recordOpening(.modalBlocked); return }
         let secureInputWasEnabled = secureInputEnabled()
         secureInputNotice.stringValue = secureInputWasEnabled ? Self.secureInputMessage : ""
         secureInputNotice.isHidden = !secureInputWasEnabled
@@ -174,10 +175,26 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
         search.stringValue = ""; groupPopup.selectItem(at: 0)
         favoriteButton.state = .off; trashButton.state = .off; regexButton.state = .off
         reload(); recordOpening(.historyLoaded)
-        // Establish the requested window before asking LaunchServices to activate
-        // this accessory process. Ordering alone is not application activation.
+        // Ordering a window is not activation of an accessory process. Ask
+        // LaunchServices to present the existing app, as a normal app-open action.
         panel.makeKeyAndOrderFront(nil)
-        _ = NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps])
+        if Bundle.main.bundleURL.pathExtension == "app" {
+            let request = NSWorkspace.OpenConfiguration()
+            request.activates = true
+            request.createsNewApplicationInstance = false
+            let attempt = openingAttempt
+            NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: request) { [weak self] _, error in
+                DispatchQueue.main.async {
+                    guard let self, self.openingAttempt == attempt, self.panel.isVisible,
+                          !self.paste.permissionBusy, NSApp.modalWindow == nil else { return }
+                    self.recordOpening(error == nil ? .activationCompleted : .activationFailed)
+                    if error == nil && NSApp.isActive { self.panel.makeKeyAndOrderFront(nil) }
+                }
+            }
+        } else {
+            // Command-line test hosts are not LaunchServices application bundles.
+            NSApp.activate(ignoringOtherApps: true)
+        }
         recordOpening(.activationReturned)
         if let row = ClipStore.initialSelection(in: clips) {
             table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
