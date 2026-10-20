@@ -122,6 +122,7 @@ final class PresentationDelegate: NSObject, NSApplicationDelegate {
             // Ask the real external window to reclaim key focus (equivalent
             // focus boundary to an external click, not an injected mouse event).
             DistributedNotificationCenter.default().postNotificationName(Notification.Name("test.nexclip.refocus"), object: ready.path, userInfo: nil, deliverImmediately: true)
+            check("externalRefocusAcknowledged", wait { FileManager.default.fileExists(atPath: ready.appendingPathExtension("refocused").path) })
             check("externalKeyFocusHides", wait { NSWorkspace.shared.frontmostApplication?.processIdentifier == external.processIdentifier && !history.panel.isKeyWindow && !history.panel.occlusionState.contains(.visible) })
             pump(0.4)
             check("noDelayedFocusTheft", NSWorkspace.shared.frontmostApplication?.processIdentifier == external.processIdentifier && !history.panel.occlusionState.contains(.visible))
