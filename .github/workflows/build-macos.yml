@@ -37,6 +37,7 @@ jobs:
       - name: Test, build and package (stable signing, ad hoc without secrets)
         shell: bash
         env:
+          NEXCLIP_RUN_FOCUS_TESTS: '1'
           MACOS_CODESIGN_P12_BASE64: ${{ secrets.MACOS_CODESIGN_P12_BASE64 }}
           MACOS_CODESIGN_P12_PASSWORD: ${{ secrets.MACOS_CODESIGN_P12_PASSWORD }}
         run: |

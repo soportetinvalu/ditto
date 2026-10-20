@@ -51,7 +51,41 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
     var onSettings: (() -> Void)?
     var onPause: (() -> Void)?
     var accessibilityMessage: String?
-    func hideForPermission() { panel.level = .normal; panel.orderOut(nil) }
+    func hideForPermission() { panel.level = .normal; panel.orderOut(nil); recordOpening(.permissionHidden) }
+    // Bounded, process-local metadata only. Export requires an explicit menu action.
+    enum OpeningSource: String { case internalRequest, shortcut, statusClick, menu }
+    private enum OpeningPhase: String {
+        case requested, permissionBlocked, destinationRemembered, groupsLoaded, historyLoaded
+        case activationReturned, ordered, nextTurn, settled
+        case becameActive, resignedActive, becameKey, resignedKey, hidden, permissionHidden
+    }
+    private var openingAttempt = 0
+    private var openingSource = OpeningSource.internalRequest
+    private var openingStarted = ProcessInfo.processInfo.systemUptime
+    private var openingRecords = [String]()
+    var openingDiagnostic: String {
+        let commit = Bundle.main.object(forInfoDictionaryKey: "NexClipCommit") as? String ?? "unversioned-local"
+        return (["NexClip — apertura v1", "commit=\(commit)",
+                 "Solo metadatos; últimas 48 etapas en memoria. No prueba visibilidad física ni causa."] + openingRecords)
+            .joined(separator: "\n") + "\n"
+    }
+    private func recordOpening(_ phase: OpeningPhase) {
+        guard openingAttempt > 0 else { return }
+        let ms = Int((ProcessInfo.processInfo.systemUptime - openingStarted) * 1000)
+        let onScreen = NSScreen.screens.contains { $0.frame.intersects(panel.frame) }
+        openingRecords.append("attempt=\(openingAttempt) source=\(openingSource.rawValue) ms=\(ms) phase=\(phase.rawValue) active=\(NSApp.isActive) hidden=\(NSApp.isHidden) visible=\(panel.isVisible) key=\(panel.isKeyWindow) main=\(panel.isMainWindow) occluded=\(!panel.occlusionState.contains(.visible)) onSpace=\(panel.isOnActiveSpace) intersectsScreen=\(onScreen) modal=\(NSApp.modalWindow != nil) permissionBusy=\(paste.permissionBusy)")
+        if openingRecords.count > 48 { openingRecords.removeFirst(openingRecords.count - 48) }
+    }
+    @objc private func openingNotification(_ note: Notification) {
+        switch note.name {
+        case NSApplication.didBecomeActiveNotification: recordOpening(.becameActive)
+        case NSApplication.didResignActiveNotification: recordOpening(.resignedActive)
+        case NSWindow.didBecomeKeyNotification: recordOpening(.becameKey)
+        case NSWindow.didResignKeyNotification: recordOpening(.resignedKey)
+        default: break
+        }
+    }
+    deinit { NotificationCenter.default.removeObserver(self) }
     private var previewWindows = [NSWindow]()
     var selection: [Clip] { table.selectedRowIndexes.compactMap { $0 < clips.count ? clips[$0] : nil } }
 
@@ -68,6 +102,12 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
         panel.setFrameAutosaveName("HistoryPanel")
         if !panel.setFrameUsingName("HistoryPanel") { panel.center() }
         build()
+        for name in [NSApplication.didBecomeActiveNotification, NSApplication.didResignActiveNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(openingNotification(_:)), name: name, object: NSApp)
+        }
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            NotificationCenter.default.addObserver(self, selector: #selector(openingNotification(_:)), name: name, object: panel)
+        }
     }
     private func button(_ name: String, _ selector: Selector) -> NSButton { NSButton(title: name, target: self, action: selector) }
     private func build() {
@@ -118,24 +158,42 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
         table.nextKeyView = search; search.nextKeyView = table
         panel.initialFirstResponder = search
     }
-    func open() {
-        guard !paste.permissionBusy else { message("Esperando permiso de macOS…"); return }
+    func open(source: OpeningSource = .internalRequest) {
+        openingAttempt += 1; openingSource = source; openingStarted = ProcessInfo.processInfo.systemUptime
+        recordOpening(.requested)
+        guard !paste.permissionBusy else {
+            recordOpening(.permissionBlocked); message("Esperando permiso de macOS…"); return
+        }
         let secureInputWasEnabled = secureInputEnabled()
         secureInputNotice.stringValue = secureInputWasEnabled ? Self.secureInputMessage : ""
         secureInputNotice.isHidden = !secureInputWasEnabled
         panel.level = .floating
-        paste.rememberDestination(); reloadGroups()
+        paste.rememberDestination(); recordOpening(.destinationRemembered)
+        reloadGroups(); recordOpening(.groupsLoaded)
         // A stale search/group/trash filter must not hide the opening target.
         search.stringValue = ""; groupPopup.selectItem(at: 0)
         favoriteButton.state = .off; trashButton.state = .off; regexButton.state = .off
-        reload()
-        NSApp.activate(ignoringOtherApps: true); panel.makeKeyAndOrderFront(nil)
+        reload(); recordOpening(.historyLoaded)
+        // Keep the existing presentation sequence until a Mac trace discriminates the cause.
+        NSApp.activate(ignoringOtherApps: true); recordOpening(.activationReturned)
+        panel.makeKeyAndOrderFront(nil)
         if let row = ClipStore.initialSelection(in: clips) {
             table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
             table.scrollRowToVisible(row); panel.makeFirstResponder(table)
         } else { panel.makeFirstResponder(search) }
+        recordOpening(.ordered)
+        let attempt = openingAttempt
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.openingAttempt == attempt else { return }
+            self.recordOpening(.nextTurn)
+        }
+        // Measurement only: never re-show/reactivate the panel from a timer.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, self.openingAttempt == attempt else { return }
+            self.recordOpening(.settled)
+        }
     }
-    func hide() { panel.orderOut(nil) }
+    func hide() { panel.orderOut(nil); recordOpening(.hidden) }
     func message(_ value: String) { information.stringValue = value; information.toolTip = value }
     func perform(_ action: () throws -> Void) {
         do { try action() } catch { message(error.localizedDescription) }

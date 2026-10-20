@@ -47,7 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             history = HistoryController(store: store, preferences: preferences, monitor: monitor, paste: paste)
             settings = SettingsController(preferences: preferences, store: store)
             shortcut = GlobalShortcut()
-            shortcut.action = { [weak self] in self?.openHistory() }
+            shortcut.action = { [weak self] in self?.history.open(source: .shortcut) }
             history.onSettings = { [weak self] in self?.settings.open() }
             history.onPause = { [weak self] in self?.togglePause() }
             settings.onSave = { [weak self] in try self?.applySettings() }
@@ -78,7 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             do { try shortcut.register(preferences.shortcut) } catch { showError(error) }
             do { try applySettings() } catch { showError(error) }
-            if !preferences.enabled { openHistory(); history.message("Captura desactivada. Abre Ajustes para dar consentimiento y elegir exclusiones.") }
+            if !preferences.enabled { history.open(); history.message("Captura desactivada. Abre Ajustes para dar consentimiento y elegir exclusiones.") }
         } catch {
             showError(error); NSApp.terminate(nil)
         }
@@ -117,7 +117,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         for (title, action) in [("Abrir historial", #selector(openHistory)),
                                 (preferences.paused ? "Reanudar captura" : "Pausar captura", #selector(togglePause)),
-                                ("Ajustes…", #selector(openSettings)), ("Acerca de / licencia", #selector(about))] {
+                                ("Ajustes…", #selector(openSettings)), ("Acerca de / licencia", #selector(about)),
+                                ("Copiar diagnóstico de apertura", #selector(copyOpeningDiagnostic))] {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: ""); item.target = self; menu.addItem(item)
         }
         menu.addItem(.separator()); menu.addItem(NSMenuItem(title: "Salir", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
@@ -130,9 +131,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func statusClicked(_ sender: Any?) {
         if NSApp.currentEvent?.type == .rightMouseUp, let button = status.button {
             statusMenu.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.height), in: button)
-        } else { openHistory() }
+        } else { history.open(source: .statusClick) }
     }
-    @objc private func openHistory() { history.open() }
+    @objc private func openHistory() { history.open(source: .menu) }
+    @objc private func copyOpeningDiagnostic() {
+        let destination = AccessibilityDiagnostics.logURL.deletingLastPathComponent()
+            .appendingPathComponent("diagnostico-apertura.txt")
+        do { try AccessibilityDiagnostics.copy(history.openingDiagnostic, monitor: monitor, destination: destination) }
+        catch { showError(error) }
+    }
     @objc private func openSettings() { settings.open() }
     @objc private func togglePause() { preferences.paused.toggle(); updateStatus(); history.reload() }
     @objc private func about() {
