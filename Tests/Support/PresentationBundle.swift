@@ -74,13 +74,16 @@ final class PresentationDelegate: NSObject, NSApplicationDelegate {
             let nonactivating = history.panel.styleMask.contains(.nonactivatingPanel)
             let correctlyPresented: () -> Bool = {
                 history.panel.isKeyWindow && history.panel.isVisible && history.panel.occlusionState.contains(.visible) && history.panel.isOnActiveSpace &&
-                (nonactivating ? !NSApp.isActive && external.isActive : NSApp.isActive)
+                (nonactivating ? external.isActive && NSWorkspace.shared.frontmostApplication?.processIdentifier == external.processIdentifier : NSApp.isActive)
             }
             history.open(source: .menu)
             let opened = wait(correctlyPresented)
+            let presentationState: [String: Any] = ["appKitActive": NSApp.isActive, "runningApplicationActive": NSRunningApplication.current.isActive,
+                "externalActive": external.isActive, "externalFrontmost": NSWorkspace.shared.frontmostApplication?.processIdentifier == external.processIdentifier,
+                "key": history.panel.isKeyWindow, "unoccluded": history.panel.occlusionState.contains(.visible)]
             check("presentedKeyVisibleWithCorrectActivation", opened)
             if !opened {
-                finish(["mode": mode, "nonactivating": nonactivating, "secureInputBefore": secureInputBefore, "controlReady": controlReady, "controlState": controlState, "bundleID": Bundle.main.bundleIdentifier ?? "", "policy": NSApp.activationPolicy().rawValue], history.openingDiagnostic)
+                finish(["mode": mode, "nonactivating": nonactivating, "presentationState": presentationState, "secureInputBefore": secureInputBefore, "controlReady": controlReady, "controlState": controlState, "bundleID": Bundle.main.bundleIdentifier ?? "", "policy": NSApp.activationPolicy().rawValue], history.openingDiagnostic)
                 return
             }
             var persistent = opened
@@ -107,7 +110,7 @@ final class PresentationDelegate: NSObject, NSApplicationDelegate {
             pump(0.4)
             check("escapeStaysClosed", !history.panel.isVisible)
             _ = external.activate(options: [.activateIgnoringOtherApps])
-            check("focusBeforeReopen", wait { !NSApp.isActive && NSWorkspace.shared.frontmostApplication?.processIdentifier == external.processIdentifier })
+            check("focusBeforeReopen", wait { !history.panel.isKeyWindow && external.isActive && NSWorkspace.shared.frontmostApplication?.processIdentifier == external.processIdentifier })
             history.open(source: .statusClick)
             check("reopenedBySharedPresenter", wait(correctlyPresented))
             history.pasteSelection()
@@ -119,16 +122,16 @@ final class PresentationDelegate: NSObject, NSApplicationDelegate {
             // Ask the real external window to reclaim key focus (equivalent
             // focus boundary to an external click, not an injected mouse event).
             DistributedNotificationCenter.default().postNotificationName(Notification.Name("test.nexclip.refocus"), object: ready.path, userInfo: nil, deliverImmediately: true)
-            check("externalKeyFocusHides", wait { !NSApp.isActive && !history.panel.isKeyWindow && !history.panel.occlusionState.contains(.visible) })
+            check("externalKeyFocusHides", wait { NSWorkspace.shared.frontmostApplication?.processIdentifier == external.processIdentifier && !history.panel.isKeyWindow && !history.panel.occlusionState.contains(.visible) })
             pump(0.4)
-            check("noDelayedFocusTheft", !NSApp.isActive && !history.panel.occlusionState.contains(.visible))
+            check("noDelayedFocusTheft", NSWorkspace.shared.frontmostApplication?.processIdentifier == external.processIdentifier && !history.panel.occlusionState.contains(.visible))
             history.open(source: .menu)
             history.hideForPermission()
             _ = NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps])
             pump(0.4)
             check("permissionHideStaysHidden", !history.panel.isVisible && history.panel.level == .normal)
             diagnostic = history.openingDiagnostic
-            let metadata: [String: Any] = ["mode": mode, "nonactivating": nonactivating, "secureInputBefore": secureInputBefore, "controlReady": controlReady, "controlState": controlState, "bundleID": Bundle.main.bundleIdentifier ?? "", "policy": NSApp.activationPolicy().rawValue]
+            let metadata: [String: Any] = ["mode": mode, "nonactivating": nonactivating, "presentationState": presentationState, "secureInputBefore": secureInputBefore, "controlReady": controlReady, "controlState": controlState, "bundleID": Bundle.main.bundleIdentifier ?? "", "policy": NSApp.activationPolicy().rawValue]
             finish(metadata, diagnostic)
         } catch {
             check("harnessError", false)

@@ -160,14 +160,14 @@ final class HistoryOpeningTests: XCTestCase {
             try withHistory { controller, board in
                 let changeCount = board.changeCount
                 controller.open(source: .menu) // Real shared presenter; NOT a physical shortcut/menu E2E.
-                let opened = wait { !NSApp.isActive && external.isActive && controller.panel.isVisible && controller.panel.isKeyWindow &&
+                let opened = wait { external.isActive && NSWorkspace.shared.frontmostApplication?.processIdentifier == external.processIdentifier && controller.panel.isVisible && controller.panel.isKeyWindow &&
                     controller.panel.occlusionState.contains(.visible) && controller.panel.isOnActiveSpace }
                 print("FOCUS presenter mode=\(mode) opened=\(opened)\n\(controller.openingDiagnostic)")
                 XCTAssertTrue(opened, mode)
                 // No transient flash counted as success. Observe through several run-loop turns.
                 let end = Date().addingTimeInterval(0.6)
                 repeat {
-                    XCTAssertTrue(!NSApp.isActive && external.isActive && controller.panel.isVisible && controller.panel.isKeyWindow &&
+                    XCTAssertTrue(external.isActive && NSWorkspace.shared.frontmostApplication?.processIdentifier == external.processIdentifier && controller.panel.isVisible && controller.panel.isKeyWindow &&
                         controller.panel.occlusionState.contains(.visible) && controller.panel.isOnActiveSpace, mode)
                     pump(0.02)
                 } while Date() < end
