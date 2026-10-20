@@ -10,6 +10,7 @@ final class FocusDelegate: NSObject, NSApplicationDelegate {
     let ready = URL(fileURLWithPath: CommandLine.arguments[2])
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        DistributedNotificationCenter.default().addObserver(self, selector: #selector(refocus), name: Notification.Name("test.nexclip.refocus"), object: ready.path)
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 300, height: 120),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -21,6 +22,7 @@ final class FocusDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
         focusAndMarkReady()
     }
+    @objc private func refocus() { focusAndMarkReady() }
     func applicationDidBecomeActive(_ notification: Notification) { focusAndMarkReady() }
     private func focusAndMarkReady() {
         guard NSApp.isActive, let window, let field else { return }

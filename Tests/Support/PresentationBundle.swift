@@ -71,17 +71,22 @@ final class PresentationDelegate: NSObject, NSApplicationDelegate {
             let history = HistoryController(store: store, preferences: preferences, monitor: monitor, paste: paste)
             defer { history.hide(); history.panel.close() }
             let count = board.changeCount
+            let nonactivating = history.panel.styleMask.contains(.nonactivatingPanel)
+            let correctlyPresented: () -> Bool = {
+                history.panel.isKeyWindow && history.panel.isVisible && history.panel.occlusionState.contains(.visible) && history.panel.isOnActiveSpace &&
+                (nonactivating ? !NSApp.isActive && external.isActive : NSApp.isActive)
+            }
             history.open(source: .menu)
-            let opened = wait { NSApp.isActive && history.panel.isKeyWindow && history.panel.isVisible && history.panel.occlusionState.contains(.visible) && history.panel.isOnActiveSpace }
-            check("presentedActiveKeyVisible", opened)
+            let opened = wait(correctlyPresented)
+            check("presentedKeyVisibleWithCorrectActivation", opened)
             if !opened {
-                finish(["mode": mode, "secureInputBefore": secureInputBefore, "controlReady": controlReady, "controlState": controlState, "bundleID": Bundle.main.bundleIdentifier ?? "", "policy": NSApp.activationPolicy().rawValue], history.openingDiagnostic)
+                finish(["mode": mode, "nonactivating": nonactivating, "secureInputBefore": secureInputBefore, "controlReady": controlReady, "controlState": controlState, "bundleID": Bundle.main.bundleIdentifier ?? "", "policy": NSApp.activationPolicy().rawValue], history.openingDiagnostic)
                 return
             }
             var persistent = opened
             let end = Date().addingTimeInterval(0.6)
             while Date() < end {
-                persistent = persistent && NSApp.isActive && history.panel.isKeyWindow && history.panel.isVisible && history.panel.occlusionState.contains(.visible)
+                persistent = persistent && correctlyPresented()
                 pump(0.02)
             }
             check("persistent600ms", persistent)
@@ -104,14 +109,17 @@ final class PresentationDelegate: NSObject, NSApplicationDelegate {
             _ = external.activate(options: [.activateIgnoringOtherApps])
             check("focusBeforeReopen", wait { !NSApp.isActive && NSWorkspace.shared.frontmostApplication?.processIdentifier == external.processIdentifier })
             history.open(source: .statusClick)
-            check("reopenedBySharedPresenter", wait { NSApp.isActive && history.panel.isKeyWindow && history.panel.occlusionState.contains(.visible) })
+            check("reopenedBySharedPresenter", wait(correctlyPresented))
             history.pasteSelection()
             check("copyOnlyWritesNamedBoard", board.string(forType: .string) == "fixture")
             check("copyOnlyReturnsToDestination", wait { !history.panel.isVisible && NSWorkspace.shared.frontmostApplication?.processIdentifier == external.processIdentifier })
             history.open(source: .shortcut)
-            check("thirdOpen", wait { NSApp.isActive && history.panel.isKeyWindow && history.panel.occlusionState.contains(.visible) })
+            check("thirdOpen", wait(correctlyPresented))
             _ = external.activate(options: [.activateIgnoringOtherApps])
-            check("deactivationHides", wait { !NSApp.isActive && !history.panel.isKeyWindow && !history.panel.occlusionState.contains(.visible) })
+            // Ask the real external window to reclaim key focus (equivalent
+            // focus boundary to an external click, not an injected mouse event).
+            DistributedNotificationCenter.default().postNotificationName(Notification.Name("test.nexclip.refocus"), object: ready.path, userInfo: nil, deliverImmediately: true)
+            check("externalKeyFocusHides", wait { !NSApp.isActive && !history.panel.isKeyWindow && !history.panel.occlusionState.contains(.visible) })
             pump(0.4)
             check("noDelayedFocusTheft", !NSApp.isActive && !history.panel.occlusionState.contains(.visible))
             history.open(source: .menu)
@@ -120,7 +128,7 @@ final class PresentationDelegate: NSObject, NSApplicationDelegate {
             pump(0.4)
             check("permissionHideStaysHidden", !history.panel.isVisible && history.panel.level == .normal)
             diagnostic = history.openingDiagnostic
-            let metadata: [String: Any] = ["mode": mode, "secureInputBefore": secureInputBefore, "controlReady": controlReady, "controlState": controlState, "bundleID": Bundle.main.bundleIdentifier ?? "", "policy": NSApp.activationPolicy().rawValue]
+            let metadata: [String: Any] = ["mode": mode, "nonactivating": nonactivating, "secureInputBefore": secureInputBefore, "controlReady": controlReady, "controlState": controlState, "bundleID": Bundle.main.bundleIdentifier ?? "", "policy": NSApp.activationPolicy().rawValue]
             finish(metadata, diagnostic)
         } catch {
             check("harnessError", false)

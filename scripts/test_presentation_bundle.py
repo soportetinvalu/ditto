@@ -48,13 +48,13 @@ def main():
     current = (ROOT / history_path).read_text()
     baseline = run(['git', 'show', BASELINE + ':' + history_path], stdout=subprocess.PIPE).stdout.decode()
     # This counterfactual removes actual presentation, not assertions or AppKit state.
-    start = current.index('        // Ordering a window is not activation')
-    end = current.index('        recordOpening(.activationReturned)', start)
-    negative = current[:start] + current[end:]
+    negative = current.replace('        panel.makeKeyAndOrderFront(nil)\n', '')
     assert negative != current
     sources = [p for p in sorted((ROOT / 'Sources/NexClip').glob('*.swift')) if p.name not in {'App.swift', 'HistoryController.swift'}]
     reports = []
-    for variant, history in [('baseline', baseline), ('candidate', current), ('noPresentation', negative)]:
+    for variant, history in [('baseline', baseline), ('candidate', current),
+                             ('keepHidesOnDeactivate', current.replace('panel.hidesOnDeactivate = false', 'panel.hidesOnDeactivate = true')),
+                             ('noPresentation', negative)]:
         folder = output / variant
         folder.mkdir()
         h = folder / 'HistoryController.swift'
@@ -75,9 +75,9 @@ def main():
     negative = [r for r in reports if r['variant'] == 'noPresentation']
     # Exclude a precondition failure from the discriminating negative verdict.
     sensitivity = all(any(c['name'] == 'externalOwnsFocus' and c['passed'] for c in r['checks']) and
-                      any(c['name'] == 'presentedActiveKeyVisible' and not c['passed'] for c in r['checks']) and
+                      any(c['name'] == 'presentedKeyVisibleWithCorrectActivation' and not c['passed'] for c in r['checks']) and
                       any(c['name'] == 'fixtureCleaned' and c['passed'] for c in r['checks']) for r in negative)
-    passed = len(candidate) == 2 and all(r['passed'] and 'phase=activationCompleted' in r['diagnostic'] for r in candidate) and len(negative) == 2 and sensitivity
+    passed = len(candidate) == 2 and all(r['passed'] and r['metadata']['nonactivating'] and 'phase=keyRequested' in r['diagnostic'] for r in candidate) and len(negative) == 2 and sensitivity
     summary = dict(passed=passed, baseline_sha=BASELINE, reports=reports,
                    sensitivity=sensitivity, candidate_cases=len(candidate), skipped=0,
                    source_commit=run(['git', 'rev-parse', 'HEAD'], stdout=subprocess.PIPE).stdout.decode().strip())

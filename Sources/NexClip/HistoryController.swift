@@ -26,7 +26,13 @@ final class UsedHistoryRow: NSTableRowView {
 }
 final class HistoryPanel: NSPanel {
     override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { true }
+    override var canBecomeMain: Bool { false }
+    override func resignKey() {
+        super.resignKey()
+        // This panel can be key while NexClip is inactive. Dismiss on actual
+        // loss of keyboard focus, not on a process-deactivation transition.
+        orderOut(nil)
+    }
 }
 
 final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, NSMenuDelegate {
@@ -56,7 +62,7 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
     enum OpeningSource: String { case internalRequest, shortcut, statusClick, menu }
     private enum OpeningPhase: String {
         case requested, permissionBlocked, modalBlocked, destinationRemembered, groupsLoaded, historyLoaded
-        case activationReturned, activationCompleted, activationFailed, ordered, nextTurn, settled
+        case keyRequested, ordered, nextTurn, settled
         case becameActive, resignedActive, becameKey, resignedKey, hidden, permissionHidden
     }
     private var openingAttempt = 0
@@ -65,7 +71,7 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
     private var openingRecords = [String]()
     var openingDiagnostic: String {
         let commit = Bundle.main.object(forInfoDictionaryKey: "NexClipCommit") as? String ?? "unversioned-local"
-        return (["NexClip — apertura v1", "commit=\(commit)",
+        return (["NexClip — apertura v2 (panel no activante)", "commit=\(commit)",
                  "Solo metadatos; últimas 48 etapas en memoria. No prueba visibilidad física ni causa."] + openingRecords)
             .joined(separator: "\n") + "\n"
     }
@@ -92,11 +98,14 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
     init(store: ClipStore, preferences: Preferences, monitor: ClipboardMonitor, paste: PasteCoordinator) {
         self.store = store; self.preferences = preferences; self.monitor = monitor; self.paste = paste
         panel = HistoryPanel(contentRect: NSRect(x: 0, y: 0, width: 550, height: 470),
-                             styleMask: [.titled, .closable, .resizable, .utilityWindow], backing: .buffered, defer: false)
+                             styleMask: [.titled, .closable, .resizable, .utilityWindow, .nonactivatingPanel], backing: .buffered, defer: false)
         super.init()
         panel.title = "NexClip — historial"
         panel.isReleasedWhenClosed = false; panel.level = .floating
-        panel.hidesOnDeactivate = true
+        // Scoped to this nonactivating history panel; Settings/modals keep their
+        // own activation behavior. resignKey supplies the dismissal contract.
+        panel.hidesOnDeactivate = false
+        panel.becomesKeyOnlyIfNeeded = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.minSize = NSSize(width: 450, height: 300)
         panel.setFrameAutosaveName("HistoryPanel")
@@ -175,27 +184,10 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
         search.stringValue = ""; groupPopup.selectItem(at: 0)
         favoriteButton.state = .off; trashButton.state = .off; regexButton.state = .off
         reload(); recordOpening(.historyLoaded)
-        // Ordering a window is not activation of an accessory process. Ask
-        // LaunchServices to present the existing app, as a normal app-open action.
+        // A nonactivating panel borrows keyboard focus without activating NexClip
+        // or scheduling a later process activation that could steal focus back.
         panel.makeKeyAndOrderFront(nil)
-        if Bundle.main.bundleURL.pathExtension == "app" {
-            let request = NSWorkspace.OpenConfiguration()
-            request.activates = true
-            request.createsNewApplicationInstance = false
-            let attempt = openingAttempt
-            NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: request) { [weak self] _, error in
-                DispatchQueue.main.async {
-                    guard let self, self.openingAttempt == attempt, self.panel.isVisible,
-                          !self.paste.permissionBusy, NSApp.modalWindow == nil else { return }
-                    self.recordOpening(error == nil ? .activationCompleted : .activationFailed)
-                    if error == nil && NSApp.isActive { self.panel.makeKeyAndOrderFront(nil) }
-                }
-            }
-        } else {
-            // Command-line test hosts are not LaunchServices application bundles.
-            NSApp.activate(ignoringOtherApps: true)
-        }
-        recordOpening(.activationReturned)
+        recordOpening(.keyRequested)
         if let row = ClipStore.initialSelection(in: clips) {
             table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
             table.scrollRowToVisible(row); panel.makeFirstResponder(table)

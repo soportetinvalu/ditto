@@ -160,20 +160,21 @@ final class HistoryOpeningTests: XCTestCase {
             try withHistory { controller, board in
                 let changeCount = board.changeCount
                 controller.open(source: .menu) // Real shared presenter; NOT a physical shortcut/menu E2E.
-                let opened = wait { NSApp.isActive && controller.panel.isVisible && controller.panel.isKeyWindow &&
+                let opened = wait { !NSApp.isActive && external.isActive && controller.panel.isVisible && controller.panel.isKeyWindow &&
                     controller.panel.occlusionState.contains(.visible) && controller.panel.isOnActiveSpace }
                 print("FOCUS presenter mode=\(mode) opened=\(opened)\n\(controller.openingDiagnostic)")
                 XCTAssertTrue(opened, mode)
                 // No transient flash counted as success. Observe through several run-loop turns.
                 let end = Date().addingTimeInterval(0.6)
                 repeat {
-                    XCTAssertTrue(NSApp.isActive && controller.panel.isVisible && controller.panel.isKeyWindow &&
+                    XCTAssertTrue(!NSApp.isActive && external.isActive && controller.panel.isVisible && controller.panel.isKeyWindow &&
                         controller.panel.occlusionState.contains(.visible) && controller.panel.isOnActiveSpace, mode)
                     pump(0.02)
                 } while Date() < end
                 XCTAssertEqual(controller.paste.destination?.processIdentifier, external.processIdentifier)
                 XCTAssertEqual(board.changeCount, changeCount)
                 XCTAssertTrue(external.activate(options: [.activateIgnoringOtherApps]))
+                DistributedNotificationCenter.default().postNotificationName(Notification.Name("test.nexclip.refocus"), object: ready.path, userInfo: nil, deliverImmediately: true)
                 XCTAssertTrue(wait { !NSApp.isActive && !controller.panel.isKeyWindow &&
                     !controller.panel.occlusionState.contains(.visible) })
                 pump(0.4)

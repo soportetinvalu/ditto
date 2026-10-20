@@ -344,7 +344,8 @@ final class NexClipTests: XCTestCase {
         let paste = PasteCoordinator(monitor: monitor, preferences: preferences)
         let history = HistoryController(store: store, preferences: preferences, monitor: monitor, paste: paste)
         XCTAssertEqual(history.panel.level, .floating)
-        XCTAssertTrue(history.panel.hidesOnDeactivate)
+        XCTAssertFalse(history.panel.hidesOnDeactivate)
+        XCTAssertTrue(history.panel.styleMask.contains(.nonactivatingPanel))
         history.hideForPermission()
         XCTAssertFalse(history.panel.isVisible); XCTAssertEqual(history.panel.level, .normal)
         history.accessibilityMessage = "Esperando permiso de macOS…"; history.reload()
@@ -674,7 +675,8 @@ final class NexClipTests: XCTestCase {
         try withHistory { controller, _ in
             XCTAssertTrue(controller.panel.collectionBehavior.contains(.canJoinAllSpaces))
             XCTAssertTrue(controller.panel.collectionBehavior.contains(.fullScreenAuxiliary))
-            XCTAssertTrue(controller.panel.hidesOnDeactivate)
+            XCTAssertFalse(controller.panel.hidesOnDeactivate)
+            XCTAssertTrue(controller.panel.styleMask.contains(.nonactivatingPanel))
             XCTAssertEqual(controller.panel.level, .floating)
             // The same open() used by the menu/icon must not depend on shortcut registration.
             controller.secureInputEnabled = { true }
