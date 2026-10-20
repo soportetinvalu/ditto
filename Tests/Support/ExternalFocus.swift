@@ -10,7 +10,6 @@ final class FocusDelegate: NSObject, NSApplicationDelegate {
     let ready = URL(fileURLWithPath: CommandLine.arguments[2])
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        DistributedNotificationCenter.default().addObserver(self, selector: #selector(refocus(_:)), name: Notification.Name("test.nexclip.refocus"), object: ready.path)
         let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 300, height: 120),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -21,23 +20,6 @@ final class FocusDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         focusAndMarkReady()
-    }
-    @objc private func refocus(_ note: Notification) {
-        // A fresh native window forces a real key-window change. Merely asking
-        // the already-key external window to become key can be an AppKit no-op
-        // while a nonactivating panel borrows its keyboard focus.
-        let old = window
-        let next = NSWindow(contentRect: NSRect(x: 160, y: 160, width: 300, height: 120),
-                            styleMask: [.titled], backing: .buffered, defer: false)
-        next.isReleasedWhenClosed = false
-        if let field { next.contentView?.addSubview(field) }
-        window = next
-        next.makeKeyAndOrderFront(nil)
-        old?.close()
-        focusAndMarkReady()
-        if next.isKeyWindow {
-            try? Data("refocused".utf8).write(to: ready.appendingPathExtension("refocused"), options: .atomic)
-        }
     }
     func applicationDidBecomeActive(_ notification: Notification) { focusAndMarkReady() }
     private func focusAndMarkReady() {

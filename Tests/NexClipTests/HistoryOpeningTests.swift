@@ -173,9 +173,16 @@ final class HistoryOpeningTests: XCTestCase {
                 } while Date() < end
                 XCTAssertEqual(controller.paste.destination?.processIdentifier, external.processIdentifier)
                 XCTAssertEqual(board.changeCount, changeCount)
-                XCTAssertTrue(external.activate(options: [.activateIgnoringOtherApps]))
-                DistributedNotificationCenter.default().postNotificationName(Notification.Name("test.nexclip.refocus"), object: ready.path, userInfo: nil, deliverImmediately: true)
-                XCTAssertTrue(wait { !NSApp.isActive && !controller.panel.isKeyWindow &&
+                let nextConfiguration = NSWorkspace.OpenConfiguration()
+                nextConfiguration.arguments = [mode, root.appendingPathComponent("next-ready-" + mode).path]
+                nextConfiguration.createsNewApplicationInstance = true
+                nextConfiguration.activates = true
+                var next: NSRunningApplication?
+                NSWorkspace.shared.openApplication(at: bundle.deletingLastPathComponent(), configuration: nextConfiguration) { next = $0 }
+                XCTAssertTrue(wait { next != nil })
+                let nextApp = try XCTUnwrap(next)
+                defer { nextApp.terminate(); XCTAssertTrue(wait { nextApp.isTerminated }) }
+                XCTAssertTrue(wait { NSWorkspace.shared.frontmostApplication?.processIdentifier == nextApp.processIdentifier && !controller.panel.isKeyWindow &&
                     !controller.panel.occlusionState.contains(.visible) })
                 pump(0.4)
                 XCTAssertFalse(NSApp.isActive)

@@ -6,6 +6,7 @@ import Carbon
 
 final class PresentationDelegate: NSObject, NSApplicationDelegate {
     var external: NSRunningApplication?
+    var secondExternal: NSRunningApplication?
     var checks = [[String: Any]]()
     let result = URL(fileURLWithPath: CommandLine.arguments[1])
     let fixture = URL(fileURLWithPath: CommandLine.arguments[2])
@@ -118,14 +119,22 @@ final class PresentationDelegate: NSObject, NSApplicationDelegate {
             check("copyOnlyReturnsToDestination", wait { !history.panel.isVisible && NSWorkspace.shared.frontmostApplication?.processIdentifier == external.processIdentifier })
             history.open(source: .shortcut)
             check("thirdOpen", wait(correctlyPresented))
-            _ = external.activate(options: [.activateIgnoringOtherApps])
-            // Ask the real external window to reclaim key focus (equivalent
-            // focus boundary to an external click, not an injected mouse event).
-            DistributedNotificationCenter.default().postNotificationName(Notification.Name("test.nexclip.refocus"), object: ready.path, userInfo: nil, deliverImmediately: true)
-            check("externalRefocusAcknowledged", wait { FileManager.default.fileExists(atPath: ready.appendingPathExtension("refocused").path) })
-            check("externalKeyFocusHides", wait { NSWorkspace.shared.frontmostApplication?.processIdentifier == external.processIdentifier && !history.panel.isKeyWindow && !history.panel.occlusionState.contains(.visible) })
+            // Switch to another real GUI process. Re-keying a window in the
+            // already-frontmost app is not proof that borrowed key focus ended.
+            let secondReady = result.appendingPathExtension("second-ready")
+            let secondConfiguration = NSWorkspace.OpenConfiguration()
+            secondConfiguration.arguments = [mode, secondReady.path]
+            secondConfiguration.activates = true
+            secondConfiguration.createsNewApplicationInstance = true
+            var secondError: Error?
+            NSWorkspace.shared.openApplication(at: fixture, configuration: secondConfiguration) { self.secondExternal = $0; secondError = $1 }
+            check("secondExternalLaunched", wait { self.secondExternal != nil || secondError != nil })
+            if let secondError { throw secondError }
+            guard let secondExternal else { throw LocalError("Second fixture launch failed") }
+            check("secondExternalOwnsFocus", wait { FileManager.default.fileExists(atPath: secondReady.path) && NSWorkspace.shared.frontmostApplication?.processIdentifier == secondExternal.processIdentifier })
+            check("externalKeyFocusHides", wait { !history.panel.isKeyWindow && !history.panel.occlusionState.contains(.visible) })
             pump(0.4)
-            check("noDelayedFocusTheft", NSWorkspace.shared.frontmostApplication?.processIdentifier == external.processIdentifier && !history.panel.occlusionState.contains(.visible))
+            check("noDelayedFocusTheft", NSWorkspace.shared.frontmostApplication?.processIdentifier == secondExternal.processIdentifier && !history.panel.occlusionState.contains(.visible))
             history.open(source: .menu)
             history.hideForPermission()
             _ = NSRunningApplication.current.activate(options: [.activateIgnoringOtherApps])
@@ -140,6 +149,7 @@ final class PresentationDelegate: NSObject, NSApplicationDelegate {
         }
     }
     func finish(_ metadata: [String: Any], _ diagnostic: String) {
+        if let secondExternal { secondExternal.terminate(); check("secondFixtureCleaned", wait { secondExternal.isTerminated }) }
         if let external { external.terminate(); check("fixtureCleaned", wait { external.isTerminated }) }
         let passed = checks.allSatisfy { $0["passed"] as? Bool == true }
         let report: [String: Any] = ["passed": passed, "checks": checks, "metadata": metadata, "diagnostic": diagnostic]
