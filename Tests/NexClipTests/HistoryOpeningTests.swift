@@ -114,13 +114,30 @@ final class HistoryOpeningTests: XCTestCase {
         guard compiler.terminationStatus == 0 else { return }
         for mode in ["text", "secure"] {
             let ready = root.appendingPathComponent("ready-" + mode)
-            let child = Process(); child.executableURL = executable
-            child.arguments = [mode, ready.path]
-            try child.run()
-            defer { if child.isRunning { child.terminate() }; child.waitUntilExit() }
-            XCTAssertTrue(wait { FileManager.default.fileExists(atPath: ready.path) &&
-                NSWorkspace.shared.frontmostApplication?.processIdentifier == child.processIdentifier && !NSApp.isActive })
-            let external = try XCTUnwrap(NSRunningApplication(processIdentifier: child.processIdentifier))
+            let configuration = NSWorkspace.OpenConfiguration()
+            configuration.arguments = [mode, ready.path]
+            configuration.createsNewApplicationInstance = true
+            configuration.activates = true
+            var launched: NSRunningApplication?
+            var launchError: Error?
+            // Launch the bundle through LaunchServices as macOS launches real apps,
+            // rather than spawning its executable as an unregistered command child.
+            NSWorkspace.shared.openApplication(at: bundle.deletingLastPathComponent(), configuration: configuration) {
+                launched = $0; launchError = $1
+            }
+            XCTAssertTrue(wait { launched != nil || launchError != nil })
+            if let launchError { throw launchError }
+            let external = try XCTUnwrap(launched)
+            defer {
+                external.terminate()
+                XCTAssertTrue(wait { external.isTerminated }, "Fixture cleanup")
+            }
+            let fixtureReady = wait { FileManager.default.fileExists(atPath: ready.path) &&
+                NSWorkspace.shared.frontmostApplication?.processIdentifier == external.processIdentifier && !NSApp.isActive }
+            print("FOCUS fixture mode=\(mode) ready=\(fixtureReady) hostActive=\(NSApp.isActive)")
+            guard fixtureReady else {
+                throw XCTSkip("Infrastructure: external AppKit fixture did not acquire focus; presenter not evaluated")
+            }
             // Capability control independent of HistoryController: the XCTest host
             // must be able to activate an ordinary NSWindow before its presenter
             // can be judged. A CI host failing this control is not a product red.
@@ -139,7 +156,7 @@ final class HistoryOpeningTests: XCTestCase {
             }
             XCTAssertTrue(external.activate(options: [.activateIgnoringOtherApps]))
             XCTAssertTrue(wait { !NSApp.isActive &&
-                NSWorkspace.shared.frontmostApplication?.processIdentifier == child.processIdentifier })
+                NSWorkspace.shared.frontmostApplication?.processIdentifier == external.processIdentifier })
             try withHistory { controller, board in
                 let changeCount = board.changeCount
                 controller.open(source: .menu) // Real shared presenter; NOT a physical shortcut/menu E2E.
@@ -154,7 +171,7 @@ final class HistoryOpeningTests: XCTestCase {
                         controller.panel.occlusionState.contains(.visible) && controller.panel.isOnActiveSpace, mode)
                     pump(0.02)
                 } while Date() < end
-                XCTAssertEqual(controller.paste.destination?.processIdentifier, child.processIdentifier)
+                XCTAssertEqual(controller.paste.destination?.processIdentifier, external.processIdentifier)
                 XCTAssertEqual(board.changeCount, changeCount)
                 XCTAssertTrue(external.activate(options: [.activateIgnoringOtherApps]))
                 XCTAssertTrue(wait { !NSApp.isActive && !controller.panel.isKeyWindow &&
