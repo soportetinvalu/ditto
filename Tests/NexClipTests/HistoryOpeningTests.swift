@@ -178,7 +178,7 @@ final class HistoryOpeningTests: XCTestCase {
                 nextConfiguration.createsNewApplicationInstance = true
                 nextConfiguration.activates = true
                 var next: NSRunningApplication?
-                NSWorkspace.shared.openApplication(at: bundle.deletingLastPathComponent(), configuration: nextConfiguration) { next = $0 }
+                NSWorkspace.shared.openApplication(at: bundle.deletingLastPathComponent(), configuration: nextConfiguration) { application, _ in next = application }
                 XCTAssertTrue(wait { next != nil })
                 let nextApp = try XCTUnwrap(next)
                 defer { nextApp.terminate(); XCTAssertTrue(wait { nextApp.isTerminated }) }
