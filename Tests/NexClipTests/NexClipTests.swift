@@ -685,7 +685,14 @@ final class NexClipTests: XCTestCase {
                 let label = try XCTUnwrap(controller.table.view(atColumn: 0, row: row, makeIfNecessary: true) as? NSTextField)
                 XCTAssertEqual(label.stringValue, String(row + 1))
                 XCTAssertLessThanOrEqual(label.cell!.cellSize.width, label.bounds.width)
-                XCTAssertLessThanOrEqual(label.frame.maxX, column.width + 1)
+                let labelRect = label.convert(label.bounds, to: controller.table)
+                let numberRect = controller.table.frameOfCell(atColumn: 0, row: row)
+                let titleRect = controller.table.frameOfCell(atColumn: 1, row: row)
+                // NSTableView adds style insets/intercell spacing: compare actual
+                // cell rectangles in table coordinates, not a column-local width.
+                XCTAssertGreaterThanOrEqual(labelRect.minX, numberRect.minX - 1)
+                XCTAssertLessThanOrEqual(labelRect.maxX, numberRect.maxX + 1)
+                XCTAssertLessThanOrEqual(labelRect.maxX, titleRect.minX)
             }
             controller.search.stringValue = "large 1001"; controller.reload()
             XCTAssertEqual(controller.clips.count, 1)
