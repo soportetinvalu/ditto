@@ -634,41 +634,112 @@ final class NexClipTests: XCTestCase {
             XCTAssertFalse(controller.panel.isVisible)
         }
     }
-    func testSecureInputNoticeIsSampledBeforeOpeningAndSurvivesReload() throws {
+    func testHistoryNumberingContinuesPastNineAndRestartsAfterFiltering() throws {
         try withHistory { controller, board in
-            controller.hide()
-            var samples = 0
-            controller.secureInputEnabled = {
-                samples += 1
-                XCTAssertFalse(controller.panel.isVisible)
-                return true
+            for i in 1...125 {
+                let value = "item \(i)"
+                let id = try controller.store.capture([text(value)], title: value, text: value, source: "test", now: Double(i)).id
+                if i <= 17 {
+                    var clip = try XCTUnwrap(controller.store.clips().first { $0.id == id })
+                    clip.favorite = true; try controller.store.metadata(clip)
+                }
             }
-            let count = board.changeCount
+            let before = board.changeCount
             controller.open()
-            XCTAssertEqual(samples, 1)
-            XCTAssertTrue(controller.panel.isVisible)
-            XCTAssertFalse(controller.secureInputNotice.isHidden)
-            XCTAssertEqual(controller.secureInputNotice.stringValue, HistoryController.secureInputMessage)
-            controller.message("Otro mensaje")
-            controller.search.stringValue = "sin resultados"; controller.reload()
-            XCTAssertEqual(samples, 1) // Do not lose the snapshot when focus disables secure input.
-            XCTAssertFalse(controller.secureInputNotice.isHidden)
-            XCTAssertEqual(controller.secureInputNotice.stringValue, HistoryController.secureInputMessage)
-            XCTAssertEqual(board.changeCount, count)
-            XCTAssertFalse(controller.preferences.enabled)
+            let column = try XCTUnwrap(controller.table.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier("number")))
+            func checkRows(_ count: Int) throws {
+                XCTAssertEqual(controller.table.numberOfRows, count)
+                var positions = [String]()
+                for row in 0..<count {
+                    let label = try XCTUnwrap(controller.tableView(controller.table, viewFor: column, row: row) as? NSTextField)
+                    positions.append(label.stringValue)
+                    XCTAssertEqual(label.accessibilityLabel(), "Posición \(row + 1)")
+                    XCTAssertLessThanOrEqual(label.cell!.cellSize.width, column.width, "Position must fit without clipping")
+                }
+                XCTAssertEqual(positions, (0..<count).map { String($0 + 1) })
+            }
+            try checkRows(125)
+            controller.favoriteButton.state = .on; controller.reload()
+            try checkRows(17)
+            controller.search.stringValue = "no matching record"; controller.reload()
+            try checkRows(0)
+            controller.search.stringValue = ""; controller.favoriteButton.state = .off; controller.reload()
+            try checkRows(125)
+            XCTAssertEqual(board.changeCount, before)
+            XCTAssertTrue(try controller.store.clips().allSatisfy { $0.usedAt == nil })
         }
     }
-    func testSecureInputNoticeClearsOnNextUnprotectedOpening() throws {
+    func testHistoryNumberColumnFitsLargePositionsAndShrinksAfterFiltering() throws {
         try withHistory { controller, _ in
-            var secure = false
-            controller.secureInputEnabled = { secure }
-            for value in [false, true, false, true] {
-                secure = value
-                controller.open()
-                XCTAssertTrue(controller.panel.isVisible)
-                XCTAssertEqual(controller.secureInputNotice.isHidden, !value)
-                XCTAssertEqual(controller.secureInputNotice.stringValue, value ? HistoryController.secureInputMessage : "")
+            for i in 1...1001 {
+                let value = "large \(i)"
+                try controller.store.capture([text(value)], title: value, text: value, source: "test", now: Double(i))
             }
+            controller.open(); controller.panel.contentView?.layoutSubtreeIfNeeded()
+            let column = controller.table.tableColumns[0]
+            let wide = column.width
+            XCTAssertGreaterThan(wide, 33)
+            for row in [0, 8, 9, 98, 99, 998, 999, 1000] {
+                controller.table.scrollRowToVisible(row)
+                controller.panel.contentView?.layoutSubtreeIfNeeded()
+                let label = try XCTUnwrap(controller.table.view(atColumn: 0, row: row, makeIfNecessary: true) as? NSTextField)
+                XCTAssertEqual(label.stringValue, String(row + 1))
+                XCTAssertLessThanOrEqual(label.cell!.cellSize.width, label.bounds.width)
+                XCTAssertLessThanOrEqual(label.frame.maxX, column.width + 1)
+            }
+            controller.search.stringValue = "large 1001"; controller.reload()
+            XCTAssertEqual(controller.clips.count, 1)
+            XCTAssertEqual(column.width, 33)
+            XCTAssertLessThan(column.width, wide)
+        }
+    }
+    func testNumberingDoesNotExtendOptionShortcutsBeyondOneThroughNine() throws {
+        try withHistory { controller, board in
+            for i in 1...12 {
+                let value = "shortcut \(i)"
+                try controller.store.capture([text(value)], title: value, text: value, source: "test", now: Double(i))
+            }
+            for digit in 1...9 {
+                controller.open()
+                let expected = controller.clips[digit - 1].text
+                XCTAssertTrue(controller.table.onKey?(try key(controller, 18, String(digit), flags: .option)) == true)
+                XCTAssertEqual(board.string(forType: .string), expected)
+            }
+            controller.open()
+            let before = board.changeCount
+            _ = controller.table.onKey?(try key(controller, 29, "0", flags: .option))
+            XCTAssertEqual(board.changeCount, before) // Position 10 does not introduce Option-0.
+            XCTAssertEqual(try controller.store.clips().filter { $0.usedAt != nil }.count, 9)
+        }
+    }
+    func testHistoryHasNoKeyboardProtectionNoticeWithSecureInputOnOrOff() throws {
+        try withHistory { controller, board in
+            func checkNoNotice() {
+                func walk(_ view: NSView) {
+                    if let label = view as? NSTextField {
+                        XCTAssertFalse(label.stringValue.contains("macOS está protegiendo el teclado"))
+                    }
+                    XCTAssertNotEqual(view.accessibilityLabel(), "Protección del teclado de macOS")
+                    view.subviews.forEach(walk)
+                }
+                if let root = controller.panel.contentView { walk(root) }
+            }
+            let before = board.changeCount
+            for secure in [false, true, false] {
+                if secure { XCTAssertEqual(EnableSecureEventInput(), noErr) }
+                do {
+                    defer { if secure { XCTAssertEqual(DisableSecureEventInput(), noErr) } }
+                    controller.open()
+                    XCTAssertTrue(controller.panel.isVisible)
+                    checkNoNotice()
+                    controller.message("Otro mensaje")
+                    controller.search.stringValue = "sin resultados"; controller.reload()
+                    checkNoNotice()
+                    controller.hide()
+                }
+            }
+            XCTAssertEqual(board.changeCount, before)
+            XCTAssertFalse(controller.preferences.enabled)
         }
     }
     func testPanelCanAppearAcrossDesktopsAndAlongsideFullScreenApps() throws {
@@ -679,10 +750,8 @@ final class NexClipTests: XCTestCase {
             XCTAssertTrue(controller.panel.styleMask.contains(.nonactivatingPanel))
             XCTAssertEqual(controller.panel.level, .floating)
             // The same open() used by the menu/icon must not depend on shortcut registration.
-            controller.secureInputEnabled = { true }
             controller.open()
             XCTAssertTrue(controller.panel.isVisible)
-            XCTAssertFalse(controller.secureInputNotice.isHidden)
         }
     }
     func testCarbonRegistrationAndHandlerWorkWithProcessSecureInputEnabled() throws {

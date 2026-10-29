@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
 import AppKit
-import Carbon
 import ClipCore
 
 final class HistoryTable: NSTableView {
@@ -48,10 +47,12 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
     let trashButton = NSButton(checkboxWithTitle: "Papelera", target: nil, action: nil)
     let regexButton = NSButton(checkboxWithTitle: "Regex", target: nil, action: nil)
     let information = NSTextField(labelWithString: "")
-    let secureInputNotice = NSTextField(wrappingLabelWithString: "")
-    // Read before activating NexClip: moving focus may disable secure input.
-    var secureInputEnabled: () -> Bool = { IsSecureEventInputEnabled() }
-    static let secureInputMessage = "macOS está protegiendo el teclado. Si el atajo no abre NexClip, usa su icono de la barra de menús o sal del campo de contraseña. El pegado depende de la app de destino."
+    private static let numberFont = NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .regular)
+    static func numberColumnWidth(for count: Int) -> CGFloat {
+        // Positions are not shortcut hints. Allow every digit of the last row,
+        // including large histories, without stealing more title space than needed.
+        max(33, ceil((String(max(1, count)) as NSString).size(withAttributes: [.font: numberFont]).width) + 16)
+    }
     var clips = [Clip]()
     var groupIDs = [String?]()
     var onSettings: (() -> Void)?
@@ -149,18 +150,13 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
         let bottom = NSStackView(views: [search, regexButton, actions]); bottom.spacing = 6
         information.font = .systemFont(ofSize: 11); information.textColor = .secondaryLabelColor
         information.maximumNumberOfLines = 2; information.lineBreakMode = .byWordWrapping
-        secureInputNotice.font = .systemFont(ofSize: 12)
-        secureInputNotice.textColor = .labelColor
-        secureInputNotice.setAccessibilityLabel("Protección del teclado de macOS")
-        secureInputNotice.isHidden = true
-        let stack = NSStackView(views: [top, secureInputNotice, scroll, bottom, information]); stack.orientation = .vertical
+        let stack = NSStackView(views: [top, scroll, bottom, information]); stack.orientation = .vertical
         stack.alignment = .leading; stack.spacing = 7; stack.translatesAutoresizingMaskIntoConstraints = false
         root.addSubview(stack)
         NSLayoutConstraint.activate([
             stack.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 10), stack.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -10),
             stack.topAnchor.constraint(equalTo: root.topAnchor, constant: 9), stack.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -8),
             top.widthAnchor.constraint(equalTo: stack.widthAnchor), scroll.widthAnchor.constraint(equalTo: stack.widthAnchor),
-            secureInputNotice.widthAnchor.constraint(equalTo: stack.widthAnchor),
             bottom.widthAnchor.constraint(equalTo: stack.widthAnchor), information.widthAnchor.constraint(equalTo: stack.widthAnchor),
             scroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 120), groupPopup.widthAnchor.constraint(greaterThanOrEqualToConstant: 110)
         ])
@@ -174,9 +170,6 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
             recordOpening(.permissionBlocked); message("Esperando permiso de macOS…"); return
         }
         guard NSApp.modalWindow == nil else { recordOpening(.modalBlocked); return }
-        let secureInputWasEnabled = secureInputEnabled()
-        secureInputNotice.stringValue = secureInputWasEnabled ? Self.secureInputMessage : ""
-        secureInputNotice.isHidden = !secureInputWasEnabled
         panel.level = .floating
         paste.rememberDestination(); recordOpening(.destinationRemembered)
         reloadGroups(); recordOpening(.groupsLoaded)
@@ -233,6 +226,11 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
             let group = index >= 0 && index < groupIDs.count ? groupIDs[index] : nil
             clips = try store.clips(search: search.stringValue, regex: regexButton.state == .on,
                                     favorites: favoriteButton.state == .on, group: group, trash: trashButton.state == .on)
+            if let number = table.tableColumn(withIdentifier: NSUserInterfaceItemIdentifier("number")) {
+                let width = Self.numberColumnWidth(for: clips.count)
+                number.maxWidth = .greatestFiniteMagnitude
+                number.minWidth = width; number.maxWidth = width; number.width = width
+            }
             table.reloadData()
             let restored = IndexSet(clips.indices.filter { ids.contains(clips[$0].id) })
             table.selectRowIndexes(restored.isEmpty && !clips.isEmpty ? IndexSet(integer: 0) : restored, byExtendingSelection: false)
@@ -249,7 +247,9 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let clip = clips[row]
         if tableColumn?.identifier.rawValue == "number" {
-            let label = NSTextField(labelWithString: row < 9 ? "\(row + 1)" : "·")
+            let label = NSTextField(labelWithString: "\(row + 1)")
+            label.font = Self.numberFont
+            label.setAccessibilityLabel("Posición \(row + 1)")
             label.textColor = .secondaryLabelColor; label.alignment = .center; return label
         }
         let flags = (clip.favorite ? "★ " : "") + (clip.protected ? "🔒 " : "") + (clip.sticky == 1 ? "↑ " : clip.sticky == -1 ? "↓ " : "")

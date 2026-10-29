@@ -41,6 +41,11 @@ jobs:
           python3 scripts/test_presentation_bundle.py "$LOG_DIR/presentation" 2>&1 | tee "$LOG_DIR/presentation.log"
       - name: Check signing lifecycle (isolated mocks)
         run: python3 scripts/test_sign_macos.py
+      - name: History UI regression tests and isolated sensitivity controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/test_history_ui_sensitivity.py "$LOG_DIR/history-ui" 2>&1 | tee "$LOG_DIR/history-ui.log"
       - name: Test, build and package (stable signing, ad hoc without secrets)
         shell: bash
         env:
@@ -83,6 +88,8 @@ jobs:
             ${{ env.LOG_DIR }}/*.log
             ${{ env.LOG_DIR }}/presentation/**/*.json
             ${{ env.LOG_DIR }}/presentation/**/*.log
+            ${{ env.LOG_DIR }}/history-ui/*.json
+            ${{ env.LOG_DIR }}/history-ui/*.log
             ${{ env.OUTPUT_DIR }}/macos-executor.log
             ${{ env.OUTPUT_DIR }}/result.json
             ${{ env.OUTPUT_DIR }}/signature-inspection.json
