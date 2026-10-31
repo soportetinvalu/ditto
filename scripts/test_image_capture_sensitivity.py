@@ -50,7 +50,7 @@ def main():
                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
             (output / (name + ".log")).write_text(result.stdout)
             good = (result.returncode == 0 and f"Executed {count} tests" in result.stdout) if not filename else (
-                result.returncode != 0 and "XCTAssert" in result.stdout and
+                result.returncode != 0 and any(marker in result.stdout for marker in ("XCTAssert", "XCTUnwrap failed")) and
                 any("Test Case" in line and test in line and "failed" in line for line in result.stdout.splitlines()))
             row = {"case": name, "exit_code": result.returncode,
                    "expected_assertion_failure": filename is not None, "pass": good}
