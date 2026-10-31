@@ -56,7 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 return try paste.copyAccessibilityDiagnostic()
             }
             settings.onShortcutSave = { [weak self] candidate in try self?.shortcut.register(candidate) }
-            monitor.onChange = { [weak self] in self?.history.reload() }
+            monitor.onChange = { [weak self] in self?.history.reloadAfterCapture() }
             monitor.onMessage = { [weak self] in self?.history.message($0) }
             paste.onMessage = { [weak self] in self?.history.message($0) }
             paste.onHideForPermission = { [weak self] in

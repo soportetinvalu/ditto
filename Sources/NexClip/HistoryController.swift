@@ -67,6 +67,7 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
         case becameActive, resignedActive, becameKey, resignedKey, hidden, permissionHidden
     }
     private var openingAttempt = 0
+    private var pendingOpeningSelection: (count: Int, ids: [String])?
     private var openingSource = OpeningSource.internalRequest
     private var openingStarted = ProcessInfo.processInfo.systemUptime
     private var openingRecords = [String]()
@@ -172,6 +173,10 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
         guard NSApp.modalWindow == nil else { recordOpening(.modalBlocked); return }
         panel.level = .floating
         paste.rememberDestination(); recordOpening(.destinationRemembered)
+        pendingOpeningSelection = nil
+        // Flush a copy made between timer ticks before choosing the opening row.
+        // Do this before borrowing key focus; all capture/privacy guards still apply.
+        monitor.poll()
         reloadGroups(); recordOpening(.groupsLoaded)
         // A stale search/group/trash filter must not hide the opening target.
         search.stringValue = ""; groupPopup.selectItem(at: 0)
@@ -185,6 +190,9 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
             table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
             table.scrollRowToVisible(row); panel.makeFirstResponder(table)
         } else { panel.makeFirstResponder(search) }
+        if let count = monitor.pendingReadCount {
+            pendingOpeningSelection = (count, selection.map(\.id))
+        }
         recordOpening(.ordered)
         let attempt = openingAttempt
         DispatchQueue.main.async { [weak self] in
@@ -197,7 +205,18 @@ final class HistoryController: NSObject, NSTableViewDataSource, NSTableViewDeleg
             self.recordOpening(.settled)
         }
     }
-    func hide() { panel.orderOut(nil); recordOpening(.hidden) }
+    func hide() { pendingOpeningSelection = nil; panel.orderOut(nil); recordOpening(.hidden) }
+    func reloadAfterCapture() {
+        let pending = pendingOpeningSelection; pendingOpeningSelection = nil
+        let selectPending = pending?.count == monitor.pasteboard.changeCount && panel.isVisible &&
+            pending?.ids == selection.map(\.id) && search.stringValue.isEmpty &&
+            groupPopup.indexOfSelectedItem == 0 && favoriteButton.state == .off && trashButton.state == .off
+        reload()
+        if selectPending, let row = ClipStore.initialSelection(in: clips) {
+            table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            table.scrollRowToVisible(row)
+        }
+    }
     func message(_ value: String) { information.stringValue = value; information.toolTip = value }
     func perform(_ action: () throws -> Void) {
         do { try action() } catch { message(error.localizedDescription) }

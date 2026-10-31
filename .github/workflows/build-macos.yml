@@ -34,6 +34,11 @@ jobs:
             xcode-select -p
             swift --version
           } 2>&1 | tee "$LOG_DIR/toolchain.log"
+      - name: Image capture regressions and isolated sensitivity controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/test_image_capture_sensitivity.py "$LOG_DIR/image-capture" 2>&1 | tee "$LOG_DIR/image-capture.log"
       - name: Real presentation in LaunchServices application bundles
         shell: bash
         run: |
@@ -90,6 +95,8 @@ jobs:
             ${{ env.LOG_DIR }}/presentation/**/*.log
             ${{ env.LOG_DIR }}/history-ui/*.json
             ${{ env.LOG_DIR }}/history-ui/*.log
+            ${{ env.LOG_DIR }}/image-capture/*.json
+            ${{ env.LOG_DIR }}/image-capture/*.log
             ${{ env.OUTPUT_DIR }}/macos-executor.log
             ${{ env.OUTPUT_DIR }}/result.json
             ${{ env.OUTPUT_DIR }}/signature-inspection.json
